@@ -40,9 +40,10 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          text = Path("gradle-build.log").read_text(errors="replace")[-12000:]
-          escaped = text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-          print(f"::error title=Gradle build diagnostics::{escaped}")
+          text = Path("gradle-build.log").read_text(errors="replace")
+          for title, part in (("Gradle log start", text[:3500]), ("Gradle log end", text[-3500:])):
+              escaped = part.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+              print(f"::error title={title}::{escaped}")
           PY
       - uses: actions/upload-artifact@v7
         if: always()
