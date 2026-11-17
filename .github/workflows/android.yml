@@ -40,10 +40,14 @@ jobs:
         run: |
           python - <<'PY'
           from pathlib import Path
-          text = Path("gradle-build.log").read_text(errors="replace")
-          for title, part in (("Gradle log start", text[:3500]), ("Gradle log end", text[-3500:])):
-              escaped = part.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
-              print(f"::error title={title}::{escaped}")
+          lines = Path("gradle-build.log").read_text(errors="replace").splitlines()
+          matches = [i for i, line in enumerate(lines) if any(term in line.lower() for term in ("what went wrong", "e: ", "error:", "unresolved reference", "compilation error"))]
+          excerpts = []
+          for i in matches[:8]:
+              excerpts.extend(lines[max(0, i - 2):min(len(lines), i + 5)])
+          part = "\\n".join(excerpts) if excerpts else "\\n".join(lines[-100:])
+          escaped = part[:3500].replace("%", "%25").replace("\\r", "%0D").replace("\\n", "%0A")
+          print(f"::error title=Gradle compiler diagnostics::{escaped}")
           PY
       - uses: actions/upload-artifact@v7
         if: always()
