@@ -81,6 +81,7 @@ dependencies {
     implementation("androidx.room:room-ktx:2.7.2")
     ksp("androidx.room:room-compiler:2.7.2")
     implementation("net.zetetic:sqlcipher-android:4.20.0@aar")
+    implementation("com.google.errorprone:error_prone_annotations:2.36.0")
     implementation("androidx.sqlite:sqlite:2.7.0")
     implementation("androidx.sqlite:sqlite-ktx:2.7.0")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
