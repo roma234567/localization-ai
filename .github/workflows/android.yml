@@ -22,9 +22,24 @@ jobs:
         run: sdkmanager "platform-tools" "platforms;android-35" "ndk;27.2.12479018" "cmake;3.22.1"
       - uses: gradle/actions/setup-gradle@v6
       - name: Unit tests and APKs
-        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
+        shell: bash
+        run: |
+          set +e
+          ./gradlew --no-daemon --stacktrace :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease > gradle-build.log 2>&1
+          result=$?
+          tail -n 160 gradle-build.log
+          {
+            echo '### Gradle output (tail)'
+            echo '```text'
+            tail -n 160 gradle-build.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit "$result"
       - uses: actions/upload-artifact@v7
+        if: always()
         with:
-          name: vinlagonChat-apks
-          path: app/build/outputs/apk/**/*.apk
-          if-no-files-found: error
+          name: vinlagonChat-build-output
+          path: |
+            app/build/outputs/apk/**/*.apk
+            gradle-build.log
+          if-no-files-found: warn
