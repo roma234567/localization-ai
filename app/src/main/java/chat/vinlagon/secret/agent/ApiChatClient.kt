@@ -25,12 +25,12 @@ import kotlinx.serialization.json.put
 class ApiChatClient(
     private val http: HttpClient = HttpClient(OkHttp) {
         expectSuccess = false
+        followRedirects = false
         install(HttpTimeout) {
             requestTimeoutMillis = 180_000
             connectTimeoutMillis = 15_000
             socketTimeoutMillis = 60_000
         }
-        engine { config { followRedirects = false } }
     }
 ) {
     suspend fun stream(

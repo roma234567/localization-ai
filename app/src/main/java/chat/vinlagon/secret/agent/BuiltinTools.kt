@@ -60,7 +60,7 @@ class SearchInWebTool(private val client: HttpClient = HttpClient(OkHttp)) : Age
     }
 }
 
-class ReadPageTool(private val client: HttpClient = HttpClient(OkHttp) { engine { config { followRedirects = false } } }) : AgentTool {
+class ReadPageTool(private val client: HttpClient = HttpClient(OkHttp) { followRedirects = false }) : AgentTool {
     override val name = "read_page"
     override val description = "Загружает общедоступную HTTPS-страницу и извлекает основной текст в Markdown-подобном виде."
     override val type = ToolType.WEB_READ
