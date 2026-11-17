@@ -19,7 +19,7 @@ jobs:
           python-version: '3.11'
       - uses: android-actions/setup-android@v4
       - name: Install Android SDK components
-        run: sdkmanager "platform-tools" "platforms;android-35" "ndk;27.2.12479018" "cmake;3.22.1"
+        run: sdkmanager "platform-tools" "platforms;android-36" "ndk;27.2.12479018" "cmake;3.22.1"
       - uses: gradle/actions/setup-gradle@v6
       - name: Unit tests and APKs
         shell: bash

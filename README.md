@@ -17,7 +17,7 @@ Android-проект агента, package `chat.vinlagon.secret`. Это раз
 
 ## Собрать APK
 
-Требуются JDK 17, Android SDK Platform 35, NDK `27.2.12479018`, CMake 3.22.1, Gradle 8.9+ и Python 3.8+ на машине сборки (для Chaquopy), а также доступ к Google Maven, Maven Central, Rikka и JitPack:
+Требуются JDK 17, Android SDK Platform 36 (targetSdk 35), NDK `27.2.12479018`, CMake 3.22.1, Gradle 8.9+ и Python 3.8+ на машине сборки (для Chaquopy), а также доступ к Google Maven, Maven Central, Rikka и JitPack:
 
 ```sh
 ./gradlew :app:testDebugUnitTest
@@ -35,5 +35,5 @@ Release signing настроен на переменные окружения `V
 - Libsu/Shizuku добавлены как зависимости, но привилегированные движки намеренно не запускают произвольные команды. `bash_used` — виртуальный интерпретатор только для трёх операций в sandbox, не POSIX shell.
 - Python VM Chaquopy стартует; `interpolation_script` принимает только ограниченную арифметику. Произвольный Python script runner не открыт: исполнение недоверенного кода в процессе приложения не является безопасной песочницей.
 - `build_runner` отключён до появления отдельно изолированного builder-сервиса. `run_task` не выполняет root/Shizuku системные действия.
-- Compile/target SDK стоят на 35 как воспроизводимая стартовая цель. Это не сертификация Android API 36/37. Native/libs alignment и работа на API 35–37 должны быть подтверждены реальной сборкой и тестами на устройствах.
+- compileSdk 36 (targetSdk 35) выбран для SQLCipher и базовой совместимости с Android 16; это не сертификация Android API 37. Native/libs alignment и работа на API 35–37 должны быть подтверждены реальной сборкой и тестами на устройствах.
 - Google/Anthropic/OpenRouter требуют действующих endpoint/model/API key. GitHub workspace требует fine-grained token с Contents read/write для нужного репозитория. Секреты остаются локальными.

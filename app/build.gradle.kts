@@ -8,7 +8,7 @@ plugins {
 
 android {
     namespace = "chat.vinlagon.secret"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "chat.vinlagon.secret"
