@@ -92,7 +92,7 @@ private fun loadRealWorkspaceNode(context: android.content.Context, subPath: Lis
     if (!safUriString.isNullOrBlank()) {
         val tree = runCatching { androidx.documentfile.provider.DocumentFile.fromTreeUri(context, android.net.Uri.parse(safUriString)) }.getOrNull()
         if (tree != null && tree.exists()) {
-            var current = tree
+            var current: androidx.documentfile.provider.DocumentFile = tree
             for (segment in subPath) {
                 current = current.findFile(segment) ?: break
             }
