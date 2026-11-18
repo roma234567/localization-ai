@@ -167,14 +167,7 @@ fun AgentHome() {
     var currentId by remember { mutableStateOf<String?>(null) }
     var messages by remember { mutableStateOf<List<UiMessage>>(emptyList()) }
     var previousMessages by remember { mutableStateOf<List<UiMessage>?>(null) }
-    val history = remember {
-        mutableStateListOf(
-            HistoryEntry("today-1", "Launch checklist", "TODAY", listOf(UiMessage("user", "Draft a short launch checklist"), UiMessage("assistant", "Here is a concise starting point. Review the file and adjust any dates before sharing.", listOf(ToolEvent("Plan", "3 steps", listOf(ToolChild("1.", "Confirm the launch goal"), ToolChild("2.", "Prepare a reviewable draft"), ToolChild("3.", "Check links and dates"))))))),
-            HistoryEntry("today-2", "Research workspace", "TODAY", listOf(UiMessage("user", "Summarize the workspace notes"), UiMessage("assistant", "The workspace is organized around short, reviewable drafts. The next useful step is to connect a model and decide which files should be shared."))),
-            HistoryEntry("yesterday-1", "First steps with Vinlagon", "YESTERDAY", listOf(UiMessage("user", "How do I get started?"), UiMessage("assistant", "Add a model in Settings, then ask for a summary or a small draft. Files stay in your selected workspace."))),
-            HistoryEntry("older-1", "Notes and ideas", "OLDER", listOf(UiMessage("user", "Keep a note about the paper theme"), UiMessage("assistant", "Saved as a workspace note. You can open it from the folder button.")))
-        )
-    }
+    val history = remember { mutableStateListOf<HistoryEntry>() }
     fun showMessageToast(text: String, undo: (() -> Unit)? = null) {
         toastUndo = undo
         statusToast = text
