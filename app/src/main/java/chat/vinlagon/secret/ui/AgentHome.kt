@@ -131,6 +131,17 @@ fun AgentHome() {
     var connectedGitHub by remember { mutableStateOf(prefs.getBoolean("github", false)) }
     var connectedDrive by remember { mutableStateOf(prefs.getBoolean("drive", false)) }
     var toolToggles by remember { mutableStateOf(mapOf("web_search" to true, "read_page" to true, "read_file" to true, "write_file" to true, "edit_file" to true, "list_files" to true, "run_command" to false, "github" to false)) }
+    val attachments = remember { mutableStateListOf<ChatAttachment>() }
+    val profiles = remember { mutableStateListOf(*defaultProviderPresets().toTypedArray()) }
+    var activeProfileId by remember { mutableStateOf(profiles.first().id) }
+    val skills = remember { mutableStateListOf(*defaultClaudeCodeSkills().toTypedArray()) }
+    val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        uris.forEach { uri ->
+            val name = uri.lastPathSegment?.substringAfterLast('/') ?: "attachment"
+            attachments.add(ChatAttachment(id = "${System.currentTimeMillis()}-${attachments.size}", name = name, sizeLabel = "file"))
+        }
+        if (uris.isNotEmpty()) showMessageToast(phrase(en, "Attached ${uris.size} file(s)", "Прикреплено файлов: ${uris.size}"))
+    }
     var drawerExpanded by remember { mutableStateOf(true) }
     var currentId by remember { mutableStateOf<String?>(null) }
     var messages by remember { mutableStateOf<List<UiMessage>>(emptyList()) }
@@ -204,11 +215,15 @@ fun AgentHome() {
     }
     fun sendMessage(raw: String = prompt) {
         val text = raw.trim()
-        if (text.isBlank() || busy) return
+        val attachedNames = attachments.map { it.name }
+        if ((text.isBlank() && attachedNames.isEmpty()) || busy) return
         if (currentId == null) currentId = UUID.randomUUID().toString()
-        val next = messages + UiMessage("user", text) + UiMessage("assistant", "")
+        val matchedSkill = skills.firstOrNull { it.enabled && text.startsWith(it.command, ignoreCase = true) }
+        val effectiveText = if (matchedSkill != null) "${matchedSkill.promptTemplate}${text.removePrefix(matchedSkill.command).trim()}" else text
+        val next = messages + UiMessage("user", text.ifBlank { attachedNames.joinToString(", ") }, attachments = attachedNames) + UiMessage("assistant", "")
         messages = next
         prompt = ""
+        attachments.clear()
         busy = true
         val activeId = currentId
         responseJob = scope.launch {
@@ -347,7 +362,20 @@ fun AgentHome() {
                             onFolder = { treePicker.launch(null) },
                             onClear = ::clearHistory,
                             onExport = { exportLauncher.launch("vinlagon-conversation.json") },
-                            onAboutLink = { url -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } }
+                            onAboutLink = { url -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } },
+                            profiles = profiles, activeProfileId = activeProfileId,
+                            onSelectProfile = { profile ->
+                                activeProfileId = profile.id
+                                selectedModel = profile.model
+                                prefs.edit().putString("model_label", profile.model).apply()
+                                modelConfig = modelConfig.copy(baseUrl = profile.endpoint, model = profile.model)
+                                showMessageToast(phrase(en, "Switched to ${profile.name}", "Профиль: ${profile.name}"))
+                            },
+                            skills = skills,
+                            onToggleSkill = { id, enabled ->
+                                val idx = skills.indexOfFirst { it.id == id }
+                                if (idx >= 0) skills[idx] = skills[idx].copy(enabled = enabled)
+                            }
                         )
                     } else {
                         if (messages.isEmpty()) {
@@ -369,11 +397,45 @@ fun AgentHome() {
                                     IconButton(onClick = { scope.launch { listState.animateScrollToItem(messages.lastIndex) } }, modifier = Modifier.size(36.dp).background(Paper.paper1, RoundedCornerShape(10.dp))) { Icon(Icons.Outlined.ArrowDownward, null, tint = Paper.ink1, modifier = Modifier.size(18.dp)) }
                                 }
                             }
+                            if (attachments.isNotEmpty()) {
+                                Row(Modifier.fillMaxWidth().padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    attachments.toList().forEach { att ->
+                                        Surface(color = Paper.paper3, shape = RoundedCornerShape(10.dp), border = BorderStroke(1.dp, Paper.line0)) {
+                                            Row(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                                Text(att.name, color = Paper.ink1, fontSize = 12.sp, fontFamily = UiMono, maxLines = 1)
+                                                Spacer(Modifier.width(6.dp))
+                                                Text("×", Modifier.clickable { attachments.remove(att) }, color = Paper.ink2, fontSize = 13.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if (prompt.startsWith("/")) {
+                                val matchingSkills = skills.filter { it.enabled && it.command.startsWith(prompt.substringBefore(" "), ignoreCase = true) }.take(4)
+                                if (matchingSkills.isNotEmpty()) {
+                                    Surface(color = Paper.paper2, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, Paper.line0), modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)) {
+                                        Column(Modifier.padding(6.dp)) {
+                                            matchingSkills.forEach { skill ->
+                                                Row(
+                                                    Modifier.fillMaxWidth().clickable { prompt = "${skill.command} " }.padding(horizontal = 8.dp, vertical = 6.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Text(skill.command, color = Paper.ink0, fontSize = 12.5.sp, fontFamily = UiMono, fontWeight = FontWeight.SemiBold)
+                                                    Spacer(Modifier.width(10.dp))
+                                                    Text(if (en) skill.descriptionEn else skill.descriptionRu, color = Paper.ink2, fontSize = 12.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             Composer(
                                 value = prompt, onValue = { prompt = it }, busy = busy, model = selectedModel,
                                 hint = phrase(en, if (messages.isEmpty()) "Ask anything…" else "What would you like to do?", if (messages.isEmpty()) "Спросите о чём угодно…" else "Что хотите сделать?"),
                                 caption = phrase(en, "AI can make mistakes — check important details", "AI может ошибаться — проверяйте важное"),
-                                canSend = prompt.isNotBlank(), onModel = { settingsOpen = true; modelDialog = true }, onSend = { sendMessage() }, onStop = ::stopGeneration, en = en
+                                canSend = prompt.isNotBlank() || attachments.isNotEmpty(), onModel = { settingsOpen = true; modelDialog = true },
+                                onAttach = { filePicker.launch(arrayOf("*/*")) },
+                                onSend = { sendMessage() }, onStop = ::stopGeneration, en = en
                             )
                             Spacer(Modifier.height(8.dp))
                         }
@@ -505,7 +567,7 @@ private fun ChatTimeline(
     LazyColumn(modifier.fillMaxWidth().padding(horizontal = 20.dp), state = listState, contentPadding = PaddingValues(top = 18.dp, bottom = 18.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 20.dp)) {
         itemsIndexed(messages) { index, message ->
             when (message.role) {
-                "user" -> UserBubble(message.text)
+                "user" -> UserBubble(message.text, message.attachments)
                 "assistant" -> Column(Modifier.fillMaxWidth()) {
                     if (message.tools.isNotEmpty()) message.tools.forEach { event -> ToolGroup(event, reducedMotion) { action -> if (action.isNotBlank() && message.fileName != null) onOpenFile(message.fileName, message.fileBody) } }
                     if (busy && index == messages.lastIndex) {
@@ -705,7 +767,9 @@ private fun SettingsScreen(
     connectedGitHub: Boolean, connectedDrive: Boolean, onBack: () -> Unit, onLanguage: (Boolean) -> Unit,
     onModel: () -> Unit, onMode: (String) -> Unit, onTool: (String, Boolean) -> Unit, onAnimation: (Boolean) -> Unit,
     onCompact: (Boolean) -> Unit, onTextScale: (Float) -> Unit, onGitHub: () -> Unit, onDrive: () -> Unit, onFolder: () -> Unit,
-    onClear: () -> Unit, onExport: () -> Unit, onAboutLink: (String) -> Unit
+    onClear: () -> Unit, onExport: () -> Unit, onAboutLink: (String) -> Unit,
+    profiles: List<ModelProfile>, activeProfileId: String, onSelectProfile: (ModelProfile) -> Unit,
+    skills: List<AgentSkill>, onToggleSkill: (String, Boolean) -> Unit
 ) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -716,6 +780,12 @@ private fun SettingsScreen(
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
             PaperSectionLabel(phrase(en, "Model", "Модель"), Modifier.padding(top = 18.dp, bottom = 4.dp))
             SettingRow(phrase(en, "Provider and credentials", "Провайдер и ключ"), "${config.provider.name} · ${selectedModel}", phrase(en, "Configure", "Настроить"), onModel)
+            PaperSectionLabel(phrase(en, "Profiles & Presets", "Профили и пресеты"), Modifier.padding(top = 16.dp, bottom = 8.dp))
+            Row(Modifier.fillMaxWidth().background(Paper.paper3, RoundedCornerShape(12.dp)).padding(3.dp)) {
+                profiles.forEach { profile ->
+                    Segment(profile.name, profile.id == activeProfileId, Modifier.weight(1f)) { onSelectProfile(profile) }
+                }
+            }
             PaperSectionLabel(phrase(en, "Mode", "Режим"), Modifier.padding(top = 20.dp, bottom = 8.dp))
             Row(Modifier.fillMaxWidth().background(Paper.paper3, RoundedCornerShape(12.dp)).padding(3.dp)) {
                 listOf("Agent", "GitHub", "Sandbox").forEach { mode -> Segment(phrase(en, mode, when (mode) { "Agent" -> "Агент"; "GitHub" -> "GitHub"; else -> "Песочница" }), selectedMode.equals(mode, true), Modifier.weight(1f)) { onMode(mode) } }
@@ -723,6 +793,14 @@ private fun SettingsScreen(
             PaperSectionLabel(phrase(en, "Tools", "Инструменты"), Modifier.padding(top = 20.dp, bottom = 4.dp))
             val toolRows = listOf("web_search" to "Web search", "read_page" to "Read page", "read_file" to "Read files", "write_file" to "Write files", "edit_file" to "Edit files", "list_files" to "List files", "run_command" to "Run commands", "github" to "GitHub tools")
             toolRows.forEach { (key, name) -> SettingSwitchRow(phrase(en, name, when (key) { "web_search" -> "Поиск в интернете"; "read_page" -> "Читать страницы"; "read_file" -> "Читать файлы"; "write_file" -> "Создавать файлы"; "edit_file" -> "Редактировать файлы"; "list_files" -> "Список файлов"; "run_command" -> "Команды"; else -> "Инструменты GitHub" }), "${if (key == "github") 4 else 1} ${phrase(en, "tools", "инстр.")}", tools[key] ?: false) { onTool(key, it) } }
+            PaperSectionLabel(phrase(en, "Skills (Claude Code)", "Скилы (Claude Code)"), Modifier.padding(top = 20.dp, bottom = 4.dp))
+            skills.forEach { skill ->
+                SettingSwitchRow(
+                    "${skill.command} · ${if (en) skill.titleEn else skill.titleRu}",
+                    if (en) skill.descriptionEn else skill.descriptionRu,
+                    skill.enabled
+                ) { onToggleSkill(skill.id, it) }
+            }
             PaperSectionLabel(phrase(en, "Connectors", "Коннекторы"), Modifier.padding(top = 20.dp, bottom = 4.dp))
             SettingRow("GitHub", if (connectedGitHub) phrase(en, "Connected", "Подключён") else phrase(en, "Private repositories", "Приватные репозитории"), phrase(en, if (connectedGitHub) "Disconnect" else "Connect", if (connectedGitHub) "Отключить" else "Подключить"), onGitHub)
             SettingRow("Google Drive", if (connectedDrive) phrase(en, "Connected on this device", "Подключён на устройстве") else phrase(en, "Connect a folder", "Подключить папку"), phrase(en, if (connectedDrive) "Disconnect" else "Connect", if (connectedDrive) "Отключить" else "Подключить"), if (connectedDrive) onDrive else onFolder)

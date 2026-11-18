@@ -28,6 +28,7 @@ data class UiMessage(
     val text: String,
     val tools: List<ToolEvent> = emptyList(),
     val fileName: String? = null,
+    val attachments: List<String> = emptyList(),
     val fileBody: String = "",
     val stopped: Boolean = false,
     val vote: Int = 0

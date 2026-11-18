@@ -167,6 +167,7 @@ fun Composer(
     caption: String,
     canSend: Boolean,
     onModel: () -> Unit,
+    onAttach: () -> Unit = {},
     onSend: () -> Unit,
     onStop: () -> Unit,
     en: Boolean,
@@ -190,6 +191,7 @@ fun Composer(
                     )
                 )
                 Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("+", Modifier.clickable(onClick = onAttach).padding(horizontal = 10.dp, vertical = 8.dp), color = Paper.ink1, fontSize = 18.sp, fontWeight = FontWeight.Medium)
                     Text("$model ⌄", Modifier.clickable(onClick = onModel).padding(horizontal = 4.dp, vertical = 10.dp), color = Paper.ink2, fontSize = 12.5.sp, fontFamily = Mono, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Spacer(Modifier.weight(1f))
                     if (busy) {
@@ -209,10 +211,15 @@ fun Composer(
 }
 
 @Composable
-fun UserBubble(text: String, modifier: Modifier = Modifier) {
+fun UserBubble(text: String, attachments: List<String> = emptyList(), modifier: Modifier = Modifier) {
     Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
         Surface(color = Paper.paper3, shape = RoundedCornerShape(18.dp), modifier = Modifier.widthIn(max = 320.dp)) {
-            Text(text, Modifier.padding(horizontal = 14.dp, vertical = 10.dp), color = Paper.ink0, fontSize = 15.sp, lineHeight = 22.sp)
+            Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+                if (attachments.isNotEmpty()) {
+                    Text(attachments.joinToString(" · "), color = Paper.ink2, fontSize = 11.5.sp, fontFamily = Mono, modifier = Modifier.padding(bottom = 4.dp))
+                }
+                Text(text, color = Paper.ink0, fontSize = 15.sp, lineHeight = 22.sp)
+            }
         }
     }
 }
