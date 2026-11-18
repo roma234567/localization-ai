@@ -152,6 +152,10 @@ fun AgentHome() {
     var connectedGitHub by remember { mutableStateOf(prefs.getBoolean("github", false)) }
     var connectedDrive by remember { mutableStateOf(prefs.getBoolean("drive", false)) }
     var toolToggles by remember { mutableStateOf(mapOf("web_search" to true, "read_page" to true, "read_file" to true, "write_file" to true, "edit_file" to true, "list_files" to true, "run_command" to false, "github" to false)) }
+    var devModeUnlocked by remember { mutableStateOf(prefs.getBoolean("dev_mode", false)) }
+    var devPasswordDialog by remember { mutableStateOf(false) }
+    var devPasswordInput by remember { mutableStateOf("") }
+    var customSystemPrompt by remember { mutableStateOf(prefs.getString("custom_system_prompt", "") ?: "") }
     val attachments = remember { mutableStateListOf<ChatAttachment>() }
     val profiles = remember { mutableStateListOf(*defaultProviderPresets().toTypedArray()) }
     var activeProfileId by remember { mutableStateOf(profiles.first().id) }
@@ -246,7 +250,8 @@ fun AgentHome() {
                     val api = ApiChatClient()
                     val workspaceDir = java.io.File(context.filesDir, "workspace").apply { mkdirs() }
                     try {
-                        val systemPrompt = "You are a concise, careful assistant. When you need to use a tool, output a JSON object on its own line: {\"tool\":\"write|read|list|bash\", \"path\":\"...\", \"content\":\"...\", \"command\":\"...\"}. Available tools: write, read, list, bash. Give brief progress updates, not private reasoning."
+                        val baseSystemPrompt = "You are a concise, careful assistant. When you need to execute a tool, wrap the JSON strictly in <tool_call>...</tool_call> tags on its own line, e.g. <tool_call>{\"tool\":\"write|read|list|bash\",\"path\":\"...\",\"content\":\"...\",\"command\":\"...\"}</tool_call>. Never wrap example JSON in <tool_call> tags when just explaining tools. Give brief progress updates, not private reasoning."
+                        val systemPrompt = if (devModeUnlocked && customSystemPrompt.isNotBlank()) "$baseSystemPrompt\n\n$customSystemPrompt" else baseSystemPrompt
                         val conversation = mutableListOf(
                             chat.vinlagon.secret.agent.ChatMessage("system", systemPrompt),
                             *messages.dropLast(1).dropLast(1).map { chat.vinlagon.secret.agent.ChatMessage(it.role, it.text) }.toTypedArray(),
@@ -446,6 +451,19 @@ fun AgentHome() {
                             onToggleSkill = { id, enabled ->
                                 val idx = skills.indexOfFirst { it.id == id }
                                 if (idx >= 0) skills[idx] = skills[idx].copy(enabled = enabled)
+                            },
+                            devModeUnlocked = devModeUnlocked,
+                            customSystemPrompt = customSystemPrompt,
+                            onUnlockDevMode = { devPasswordDialog = true },
+                            onLockDevMode = {
+                                devModeUnlocked = false
+                                prefs.edit().putBoolean("dev_mode", false).apply()
+                                showMessageToast(phrase(en, "Developer mode disabled", "Режим разработчика выключен"))
+                            },
+                            onSaveSystemPrompt = { nextPrompt ->
+                                customSystemPrompt = nextPrompt
+                                prefs.edit().putString("custom_system_prompt", nextPrompt).apply()
+                                showMessageToast(phrase(en, "System prompt saved", "Системный промпт сохранён"))
                             }
                         )
                     } else {
@@ -578,6 +596,42 @@ fun AgentHome() {
             runCatching { SecureModelConfigStore(context).save(next); modelConfig = next; selectedModel = label; prefs.edit().putString("model_label", label).apply(); modelDialog = false }
                 .onFailure { showMessageToast(it.message ?: "Could not save model settings") }
         })
+    }
+    if (devPasswordDialog) {
+        AlertDialog(
+            onDismissRequest = { devPasswordDialog = false; devPasswordInput = "" },
+            containerColor = Paper.paper1,
+            titleContentColor = Paper.ink0,
+            textContentColor = Paper.ink0,
+            title = { Text(phrase(en, "Developer settings", "Настройки разработчика"), fontWeight = FontWeight.SemiBold) },
+            text = {
+                OutlinedTextField(
+                    value = devPasswordInput,
+                    onValueChange = { devPasswordInput = it },
+                    singleLine = true,
+                    label = { Text(phrase(en, "Password", "Пароль")) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (devPasswordInput == "ADMIN2012") {
+                        devModeUnlocked = true
+                        prefs.edit().putBoolean("dev_mode", true).apply()
+                        devPasswordDialog = false
+                        devPasswordInput = ""
+                        showMessageToast(phrase(en, "Developer mode enabled", "Режим разработчика включён"))
+                    } else {
+                        showMessageToast(phrase(en, "Incorrect password", "Неверный пароль"))
+                    }
+                }) { Text(phrase(en, "Unlock", "Открыть"), color = Paper.ink0) }
+            },
+            dismissButton = {
+                TextButton(onClick = { devPasswordDialog = false; devPasswordInput = "" }) {
+                    Text(phrase(en, "Cancel", "Отмена"), color = Paper.ink2)
+                }
+            }
+        )
     }
 }
 
@@ -848,7 +902,9 @@ private fun SettingsScreen(
     onCompact: (Boolean) -> Unit, onTextScale: (Float) -> Unit, onGitHub: () -> Unit, onDrive: () -> Unit, onFolder: () -> Unit,
     onClear: () -> Unit, onExport: () -> Unit, onAboutLink: (String) -> Unit,
     profiles: List<ModelProfile>, activeProfileId: String, onSelectProfile: (ModelProfile) -> Unit,
-    skills: List<AgentSkill>, onToggleSkill: (String, Boolean) -> Unit
+    skills: List<AgentSkill>, onToggleSkill: (String, Boolean) -> Unit,
+    devModeUnlocked: Boolean, customSystemPrompt: String,
+    onUnlockDevMode: () -> Unit, onLockDevMode: () -> Unit, onSaveSystemPrompt: (String) -> Unit
 ) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -879,6 +935,38 @@ private fun SettingsScreen(
                     if (en) skill.descriptionEn else skill.descriptionRu,
                     skill.enabled
                 ) { onToggleSkill(skill.id, it) }
+            }
+            PaperSectionLabel(phrase(en, "Developer", "Разработчик"), Modifier.padding(top = 20.dp, bottom = 4.dp))
+            if (!devModeUnlocked) {
+                SettingRow(
+                    phrase(en, "Developer settings", "Настройки разработчика"),
+                    phrase(en, "Locked", "Заблокировано"),
+                    phrase(en, "Unlock", "Открыть"),
+                    onUnlockDevMode
+                )
+            } else {
+                var promptDraft by remember(customSystemPrompt) { mutableStateOf(customSystemPrompt) }
+                SettingRow(
+                    phrase(en, "Developer mode", "Режим разработчика"),
+                    phrase(en, "Enabled", "Включён"),
+                    phrase(en, "Disable", "Выключить"),
+                    onLockDevMode
+                )
+                OutlinedTextField(
+                    value = promptDraft,
+                    onValueChange = { promptDraft = it },
+                    label = { Text(phrase(en, "Custom system prompt", "Свой системный промпт")) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    minLines = 3,
+                    maxLines = 6
+                )
+                Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.End) {
+                    OutlinedButton(
+                        onClick = { onSaveSystemPrompt(promptDraft) },
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, Paper.line1)
+                    ) { Text(phrase(en, "Save prompt", "Сохранить промпт"), color = Paper.ink0) }
+                }
             }
             PaperSectionLabel(phrase(en, "Connectors", "Коннекторы"), Modifier.padding(top = 20.dp, bottom = 4.dp))
             SettingRow("GitHub", if (connectedGitHub) phrase(en, "Connected", "Подключён") else phrase(en, "Private repositories", "Приватные репозитории"), phrase(en, if (connectedGitHub) "Disconnect" else "Connect", if (connectedGitHub) "Отключить" else "Подключить"), onGitHub)
