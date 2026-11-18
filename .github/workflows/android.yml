@@ -21,6 +21,19 @@ jobs:
       - name: Install Android SDK components
         run: sdkmanager "platform-tools" "platforms;android-36" "ndk;27.2.12479018" "cmake;3.22.1"
       - uses: gradle/actions/setup-gradle@v6
+      - name: Create ephemeral test signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          store="$RUNNER_TEMP/vinlagon-test-signing.jks"
+          password="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+          keytool -genkeypair -v -keystore "$store" -storepass "$password" -keypass "$password" -alias vinlagon-test -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=Vinlagon Test Build, OU=QA, O=Vinlagon, C=US"
+          {
+            printf 'VINLAGON_KEYSTORE=%s\\n' "$store"
+            printf 'VINLAGON_STORE_PASSWORD=%s\\n' "$password"
+            printf 'VINLAGON_KEY_ALIAS=vinlagon-test\\n'
+            printf 'VINLAGON_KEY_PASSWORD=%s\\n' "$password"
+          } >> "$GITHUB_ENV"
       - name: Unit tests and APKs
         shell: bash
         run: |

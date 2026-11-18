@@ -1,48 +1,43 @@
 package chat.vinlagon.secret.theme
 
-import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.Color
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
-private val DefaultScheme = lightColorScheme(
-    primary = Color(0xFF327FB8), onPrimary = Color.White,
-    background = Color(0xFFFAF9F7), surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF292725), onSurfaceVariant = Color(0xFF6B6864),
-    outline = Color(0xFFE5E2DE), surfaceVariant = Color(0xFFF4F2EF)
-)
-
-/** Parses a small, explicit hex-color theme object. Invalid/missing fields retain safe defaults. */
-object ThemeEngine {
-    val current = mutableStateOf(DefaultScheme)
-
-    fun applyJson(jsonString: String) { current.value = parseFromJson(jsonString) }
-
-    fun parseFromJson(jsonString: String): ColorScheme {
-        val values = runCatching { Json.parseToJsonElement(jsonString).jsonObject }.getOrNull() ?: return DefaultScheme
-        fun color(key: String, fallback: Color) = runCatching {
-            val raw = values[key]?.jsonPrimitive?.content?.removePrefix("#") ?: return@runCatching fallback
-            Color(android.graphics.Color.parseColor("#$raw"))
-        }.getOrDefault(fallback)
-        return lightColorScheme(
-            primary = color("primary", DefaultScheme.primary),
-            onPrimary = color("onPrimary", DefaultScheme.onPrimary),
-            background = color("background", DefaultScheme.background),
-            surface = color("surface", DefaultScheme.surface),
-            onSurface = color("onSurface", DefaultScheme.onSurface),
-            onSurfaceVariant = color("onSurfaceVariant", DefaultScheme.onSurfaceVariant),
-            outline = color("outline", DefaultScheme.outline),
-            surfaceVariant = color("surfaceVariant", DefaultScheme.surfaceVariant)
-        )
-    }
+/** Strict single-hue paper palette shared by every screen and interaction state. */
+object Paper {
+    val paper0 = Color(0xFFF3F0E7)
+    val paper1 = Color(0xFFF8F6EE)
+    val paper2 = Color(0xFFFCFBF5)
+    val paper3 = Color(0xFFECE8DB)
+    val line0 = Color(0xFFE2DDCB)
+    val line1 = Color(0xFFCFC9B4)
+    val ink0 = Color(0xFF221E15)
+    val ink1 = Color(0xFF5F5947)
+    val ink2 = Color(0xFF948C77)
+    val ink3 = Color(0xFFB7AF99)
+    val scrim = Color(0x73221E15)
 }
+
+private val PaperScheme = lightColorScheme(
+    primary = Paper.ink0,
+    onPrimary = Paper.paper2,
+    secondary = Paper.ink1,
+    onSecondary = Paper.paper2,
+    background = Paper.paper0,
+    onBackground = Paper.ink0,
+    surface = Paper.paper1,
+    onSurface = Paper.ink0,
+    surfaceVariant = Paper.paper3,
+    onSurfaceVariant = Paper.ink1,
+    outline = Paper.line0,
+    outlineVariant = Paper.line1,
+    error = Paper.ink1,
+    onError = Paper.paper2
+)
 
 @Composable
 fun VinlagonTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = ThemeEngine.current.value, content = content)
+    MaterialTheme(colorScheme = PaperScheme, content = content)
 }

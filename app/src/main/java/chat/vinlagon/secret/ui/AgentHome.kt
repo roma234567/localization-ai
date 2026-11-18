@@ -1,519 +1,811 @@
 package chat.vinlagon.secret.ui
 
+import android.content.Intent
+import android.net.Uri
+import android.webkit.WebView
+import android.webkit.WebViewClient
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import android.provider.OpenableColumns
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.documentfile.provider.DocumentFile
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.ArrowUpward
-import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.ArrowDownward
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import chat.vinlagon.secret.agent.ApiChatClient
 import chat.vinlagon.secret.agent.ApiModelConfig
 import chat.vinlagon.secret.agent.ApiProvider
-import chat.vinlagon.secret.agent.BuildRunnerTool
-import chat.vinlagon.secret.agent.ChatDatabase
-import chat.vinlagon.secret.agent.ChatMessage
-import chat.vinlagon.secret.agent.saveTranscript
-import chat.vinlagon.secret.agent.ReadFileTool
-import chat.vinlagon.secret.agent.PythonExpressionTool
-import chat.vinlagon.secret.agent.RunAppTool
-import chat.vinlagon.secret.agent.ReadPageTool
-import chat.vinlagon.secret.agent.ScheduleReminderTool
-import chat.vinlagon.secret.agent.SandboxCommandTool
-import chat.vinlagon.secret.agent.ApplyThemeTool
-import chat.vinlagon.secret.agent.SearchInWebTool
 import chat.vinlagon.secret.agent.SecureModelConfigStore
-import chat.vinlagon.secret.agent.ToolExecutionContext
-import chat.vinlagon.secret.agent.ToolOrchestrator
-import chat.vinlagon.secret.agent.WriteFileTool
-import chat.vinlagon.secret.security.ApprovalRequest
-import chat.vinlagon.secret.security.PermissionPolicy
-import chat.vinlagon.secret.security.SecurityGate
-import chat.vinlagon.secret.security.SecurityLevel
-import chat.vinlagon.secret.security.ToolType
-import chat.vinlagon.secret.workspace.GitHubConfig
-import chat.vinlagon.secret.workspace.GitHubTreeWorkspace
-import chat.vinlagon.secret.workspace.SafTreeWorkspace
-import chat.vinlagon.secret.workspace.SecureGitHubConfigStore
-import chat.vinlagon.secret.workspace.SandboxWorkspace
-import chat.vinlagon.secret.workspace.WorkspaceManager
-import chat.vinlagon.secret.workspace.WorkspaceMode
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import chat.vinlagon.secret.theme.Paper
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.io.File
+import java.text.DecimalFormat
+import java.util.UUID
+import kotlin.math.roundToInt
+import kotlin.random.Random
 
-private data class ModelOption(val name: String, val category: String, val hint: String)
+private val UiMono = FontFamily.Monospace
+private val UiSerif = FontFamily.Serif
+private fun phrase(en: Boolean, english: String, russian: String) = if (en) english else russian
 
-@OptIn(ExperimentalMaterial3Api::class)
+private val docsRoot = FolderNode(
+    name = "Workspace",
+    files = listOf(
+        DemoFile("README.md", "# Vinlagon\n\nA quiet paper workspace for your AI agent.\n\n- Keep files close to the conversation\n- Review every change\n- Export what matters"),
+        DemoFile("notes.txt", "Product notes\n\nKeep the interface calm, legible, and useful.\nAll important changes should remain reviewable.")
+    ),
+    folders = listOf(
+        FolderNode("docs", listOf(DemoFile("getting-started.md", "# Getting started\n\nConnect a model in **Settings → Model**. Your credentials stay encrypted on this device.\n\n`HTTPS only` endpoints are accepted.")), listOf(FolderNode("research", listOf(DemoFile("research.md", "# Research\n\nA compact summary of the current workspace and its open questions.\n\n## Next steps\n\nReview the draft, then edit it with the agent.")))),
+        FolderNode("plans", listOf(DemoFile("launch-plan.md", "# Launch plan\n\n## 1. Prepare\nConfirm the scope and review the content.\n\n## 2. Build\nCreate a small, testable first release.\n\n## 3. Review\nCheck every generated file before sharing."))),
+        FolderNode("output", listOf(DemoFile("welcome.html", "<!doctype html><html><head><meta charset='utf-8'><title>Welcome</title></head><body><main><h1>A quieter workspace</h1><p>Your agent's work, in one place.</p><a href='#details'>Read the notes</a></main></body></html>"), DemoFile("sample.py", "def greet(name: str) -> str:\n    return f\"Hello, {name}!\"\n\nprint(greet(\"there\"))"))),
+        FolderNode("archive")
+    )
+)
+
 @Composable
 fun AgentHome() {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
-    val store = remember { SecureModelConfigStore(context) }
-    val githubStore = remember { SecureGitHubConfigStore(context) }
-    var config by remember { mutableStateOf(runCatching { store.load() }.getOrDefault(ApiModelConfig())) }
-    var githubConfig by remember { mutableStateOf(runCatching { githubStore.load() }.getOrDefault(GitHubConfig())) }
-    var showGitHubSettings by remember { mutableStateOf(false) }
-    var githubActive by remember { mutableStateOf(context.getSharedPreferences("workspace", 0).getBoolean("github_active", false)) }
-    val options = listOf(
-        ModelOption("OpenAI-compatible API", "API CONFIGURATIONS", "OpenAI, OpenRouter и совместимые endpoints"),
-        ModelOption("Anthropic API", "API CONFIGURATIONS", "Messages API с потоковой передачей SSE"),
-        ModelOption("Выбрать локальный файл (.gguf)", "LOCAL .GGUF FILES", "Выберите модель через Android SAF; inference runtime готовится")
-    )
-    var localModelName by remember { mutableStateOf(context.getSharedPreferences("models", 0).getString("gguf_name", null)) }
-    var localModelUri by remember { mutableStateOf(context.getSharedPreferences("models", 0).getString("gguf_uri", null)) }
-    var selected by remember { mutableStateOf(localModelName?.let { "Local: $it" } ?: if (config.provider == ApiProvider.ANTHROPIC) options[1].name else options[0].name) }
-    var showModels by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
+    val prefs = remember { context.getSharedPreferences("vinlagon-ui-v2", 0) }
+    val scope = rememberCoroutineScope()
+    var en by remember { mutableStateOf(prefs.getBoolean("english", true)) }
+    var sidebarOpen by remember { mutableStateOf(false) }
+    var settingsOpen by remember { mutableStateOf(false) }
+    var workspaceOpen by remember { mutableStateOf(false) }
+    var workspaceWideOpen by remember { mutableStateOf(false) }
+    var currentFolder by remember { mutableStateOf(emptyList<String>()) }
+    var currentFile by remember { mutableStateOf<DemoFile?>(null) }
+    val generatedFiles = remember { mutableStateListOf<DemoFile>() }
+    var sourceMode by remember { mutableStateOf(false) }
+    var showHistoryMenu by remember { mutableStateOf<String?>(null) }
     var prompt by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
-    var lastDuration by remember { mutableStateOf("—") }
-    var lastFinishedAt by remember { mutableLongStateOf(0L) }
-    var showSecurityMenu by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val messages = remember { mutableStateListOf<ChatMessage>() }
-    var historyLoaded by remember { mutableStateOf(false) }
-    val database = remember { ChatDatabase.get(context) }
-    LaunchedEffect(database) {
-        runCatching { database.chatLog().loadAll() }.onSuccess { rows ->
-            if (messages.isEmpty()) messages.addAll(rows.map { ChatMessage(it.role, it.content) })
-        }.onFailure { error = "История недоступна: ${it.message}" }
-        historyLoaded = true
+    var responseJob by remember { mutableStateOf<Job?>(null) }
+    var statusToast by remember { mutableStateOf<String?>(null) }
+    var toastUndo by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var modelDialog by remember { mutableStateOf(false) }
+    var modelConfig by remember { mutableStateOf(runCatching { SecureModelConfigStore(context).load() }.getOrDefault(ApiModelConfig())) }
+    var selectedModel by remember { mutableStateOf(prefs.getString("model_label", "claude-opus-4.6") ?: "claude-opus-4.6") }
+    var selectedMode by remember { mutableStateOf(prefs.getString("mode", "Agent") ?: "Agent") }
+    var compact by remember { mutableStateOf(prefs.getBoolean("compact", false)) }
+    var animations by remember { mutableStateOf(prefs.getBoolean("animations", true)) }
+    var textScale by remember { mutableFloatStateOf(prefs.getFloat("text_scale", 1f)) }
+    var connectedGitHub by remember { mutableStateOf(prefs.getBoolean("github", false)) }
+    var connectedDrive by remember { mutableStateOf(prefs.getBoolean("drive", false)) }
+    var toolToggles by remember { mutableStateOf(mapOf("web_search" to true, "read_page" to true, "read_file" to true, "write_file" to true, "edit_file" to true, "list_files" to true, "run_command" to false, "github" to false)) }
+    var drawerExpanded by remember { mutableStateOf(true) }
+    var currentId by remember { mutableStateOf<String?>(null) }
+    var messages by remember { mutableStateOf<List<UiMessage>>(emptyList()) }
+    var previousMessages by remember { mutableStateOf<List<UiMessage>?>(null) }
+    val history = remember {
+        mutableStateListOf(
+            HistoryEntry("today-1", "Launch checklist", "TODAY", listOf(UiMessage("user", "Draft a short launch checklist"), UiMessage("assistant", "Here is a concise starting point. Review the file and adjust any dates before sharing.", listOf(ToolEvent("Plan", "3 steps", listOf(ToolChild("1.", "Confirm the launch goal"), ToolChild("2.", "Prepare a reviewable draft"), ToolChild("3.", "Check links and dates"))))))),
+            HistoryEntry("today-2", "Research workspace", "TODAY", listOf(UiMessage("user", "Summarize the workspace notes"), UiMessage("assistant", "The workspace is organized around short, reviewable drafts. The next useful step is to connect a model and decide which files should be shared."))),
+            HistoryEntry("yesterday-1", "First steps with Vinlagon", "YESTERDAY", listOf(UiMessage("user", "How do I get started?"), UiMessage("assistant", "Add a model in Settings, then ask for a summary or a small draft. Files stay in your selected workspace."))),
+            HistoryEntry("older-1", "Notes and ideas", "OLDER", listOf(UiMessage("user", "Keep a note about the paper theme"), UiMessage("assistant", "Saved as a workspace note. You can open it from the folder button.")))
+        )
     }
-    val scope = rememberCoroutineScope()
-    val api = remember { ApiChatClient() }
-    DisposableEffect(api) { onDispose { api.close() } }
-
-    val sandbox = remember(context) { File(context.filesDir, "sandbox").apply { mkdirs() } }
-    var workspaceUri by remember { mutableStateOf(context.getSharedPreferences("workspace", 0).getString("tree_uri", null)) }
-    val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+    fun showMessageToast(text: String, undo: (() -> Unit)? = null) {
+        toastUndo = undo
+        statusToast = text
+        scope.launch { delay(5000); if (statusToast == text) { statusToast = null; toastUndo = null } }
+    }
+    val treePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri: Uri? ->
+        if (uri != null) {
+            runCatching {
+                context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                prefs.edit().putString("workspace_uri", uri.toString()).apply()
+                showMessageToast(phrase(en, "Workspace folder linked", "Папка рабочего пространства подключена"))
+            }.onFailure { showMessageToast(it.message ?: "Folder access failed") }
+        }
+    }
+    val downloadLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
+        val selectedFile = currentFile
+        if (uri != null && selectedFile != null) runCatching {
+            context.contentResolver.openOutputStream(uri)?.use { it.write(selectedFile.content.toByteArray()) }
+            showToast(phrase(en, "File exported", "Файл сохранён"), scope) { statusToast = null }
+        }.onFailure { showToast(it.message ?: "Export failed", scope) { statusToast = null } }
+    }
+    val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) runCatching {
-            context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-            context.getSharedPreferences("workspace", 0).edit().putString("tree_uri", uri.toString()).apply()
-            workspaceUri = uri.toString()
-        }.onFailure { error = it.message ?: "Не удалось получить доступ к папке" }
+            val json = messages.joinToString(prefix = "[\n", postfix = "\n]", separator = ",\n") { "  {\"role\":\"${it.role}\",\"text\":\"${it.text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")}\"}" }
+            context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
+            showToast(phrase(en, "Conversation exported", "Диалог экспортирован"), scope) { statusToast = null }
+        }.onFailure { showToast(it.message ?: "Export failed", scope) { statusToast = null } }
     }
-    LaunchedEffect(localModelUri) {
-        val uri = localModelUri?.let { runCatching { android.net.Uri.parse(it) }.getOrNull() }
-        if (uri != null && context.contentResolver.persistedUriPermissions.none { it.uri == uri && it.isReadPermission }) {
-            localModelName = null
-            localModelUri = null
-            context.getSharedPreferences("models", 0).edit().remove("gguf_uri").remove("gguf_name").apply()
-            selected = if (config.provider == ApiProvider.ANTHROPIC) options[1].name else options[0].name
+    fun setLanguage(next: Boolean) { en = next; prefs.edit().putBoolean("english", next).apply() }
+    fun saveChatToHistory() {
+        val id = currentId ?: return
+        if (messages.isNotEmpty()) {
+            val old = history.indexOfFirst { it.id == id }
+            val title = messages.firstOrNull { it.role == "user" }?.text?.take(36) ?: phrase(en, "New chat", "Новый чат")
+            val entry = HistoryEntry(id, title, "TODAY", messages.toList())
+            if (old >= 0) history[old] = entry else history.add(0, entry)
         }
     }
-    val ggufPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) runCatching {
-            context.contentResolver.takePersistableUriPermission(uri, android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            val displayName = context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) cursor.getString(0) else null
-            } ?: uri.lastPathSegment.orEmpty()
-            require(displayName.endsWith(".gguf", ignoreCase = true)) { "Выберите файл с расширением .gguf" }
-            localModelUri = uri.toString()
-            localModelName = displayName
-            context.getSharedPreferences("models", 0).edit().putString("gguf_uri", localModelUri).putString("gguf_name", displayName).apply()
-            selected = "Local: $displayName"
-            error = "Файл выбран, но llama.cpp runtime ещё не включён в эту сборку"
-        }.onFailure { error = it.message ?: "Не удалось открыть GGUF" }
+    fun newChat() {
+        saveChatToHistory()
+        messages = emptyList()
+        currentId = null
+        prompt = ""
+        settingsOpen = false
+        sidebarOpen = false
     }
-    val workspace: WorkspaceManager = remember(sandbox, workspaceUri, githubActive, githubConfig) {
-        when {
-            githubActive && githubConfig.token.isNotBlank() && githubConfig.repository.isNotBlank() -> GitHubTreeWorkspace(githubConfig.token, githubConfig.repository, githubConfig.branch)
-            !githubActive && workspaceUri != null -> SafTreeWorkspace(context, android.net.Uri.parse(workspaceUri!!))
-            else -> SandboxWorkspace(sandbox)
-        }
+    fun openHistory(entry: HistoryEntry) {
+        saveChatToHistory()
+        currentId = entry.id
+        messages = entry.messages
+        sidebarOpen = false
+        settingsOpen = false
     }
-    val gate = remember {
-        SecurityGate(SecurityLevel.CUSTOM, mapOf(
-            ToolType.WEB_READ to PermissionPolicy.ALLOW,
-            ToolType.FILE_READ to PermissionPolicy.ALLOW,
-            ToolType.FILE_WRITE to PermissionPolicy.REQUIRE_APPROVAL,
-            ToolType.COMMAND to PermissionPolicy.ALLOW
-        ))
+    fun setVote(index: Int, value: Int) {
+        messages = messages.toMutableList().also { if (index in it.indices) it[index] = it[index].copy(vote = value) }
     }
-    val agentTools = remember(context) { listOf(ReadFileTool(), WriteFileTool(), SearchInWebTool(), ReadPageTool(), SandboxCommandTool(), RunAppTool(), ScheduleReminderTool(), BuildRunnerTool(), ApplyThemeTool(), PythonExpressionTool()) }
-    val orchestrator = remember(workspace, gate, agentTools) {
-        ToolOrchestrator(agentTools, ToolExecutionContext(workspace, gate, context.applicationContext))
+    fun replaceFileCard(file: DemoFile, newMessage: UiMessage) {
+        messages = messages.map { if (it.fileName != null) it.copy(fileName = null, fileBody = "") else it } + newMessage.copy(fileName = file.name, fileBody = file.content)
     }
-    LaunchedEffect(workspace) {
-        if (workspace is SafTreeWorkspace && !workspace.requestAccess()) {
-            workspaceUri = null
-            context.getSharedPreferences("workspace", 0).edit().remove("tree_uri").apply()
-            error = "Доступ SAF отозван; возвращена sandbox"
-        }
-    }
-    var pendingApproval by remember { mutableStateOf<ApprovalRequest?>(null) }
-    var filesVersion by remember { mutableIntStateOf(0) }
-    val workspaceFiles = remember { mutableStateListOf<String>() }
-    val workspacePreviews = remember { mutableStateMapOf<String, String>() }
-    LaunchedEffect(workspace, filesVersion) {
-        val discovered = runCatching {
-            withContext(Dispatchers.IO) {
-                when (workspace) {
-                    is SandboxWorkspace -> sandbox.walkTopDown().filter { it.isFile }.map { it.relativeTo(sandbox).path.replace(File.separatorChar, '/') }.toList()
-                    is GitHubTreeWorkspace -> workspace.listTree("").filterNot { it.endsWith("/") }
-                    is SafTreeWorkspace -> {
-                        val result = mutableListOf<String>()
-                        val uri = (workspace.mode as WorkspaceMode.AgentTask).targetDirUri
-                        val root = DocumentFile.fromTreeUri(context, uri)
-                        fun walk(dir: DocumentFile, prefix: String, depth: Int) {
-                            if (depth > 5 || result.size >= 300) return
-                            dir.listFiles().forEach { child ->
-                                val path = if (prefix.isEmpty()) child.name.orEmpty() else "$prefix/${child.name.orEmpty()}"
-                                if (child.isDirectory) walk(child, path, depth + 1) else if (child.isFile) result += path
-                            }
+    fun sendMessage(raw: String = prompt) {
+        val text = raw.trim()
+        if (text.isBlank() || busy) return
+        if (currentId == null) currentId = UUID.randomUUID().toString()
+        val next = messages + UiMessage("user", text) + UiMessage("assistant", "")
+        messages = next
+        prompt = ""
+        busy = true
+        val activeId = currentId
+        responseJob = scope.launch {
+            try {
+                if (modelConfig.apiKey.isNotBlank()) {
+                    val api = ApiChatClient()
+                    try {
+                        val replyHistory = listOf(
+                            chat.vinlagon.secret.agent.ChatMessage("system", "You are a concise, careful assistant. Give brief progress updates, not private reasoning. Use no unsupported tools; do not claim files were changed unless you changed them."),
+                            *messages.dropLast(1).map { chat.vinlagon.secret.agent.ChatMessage(it.role, it.text) }.toTypedArray()
+                        )
+                        api.stream(modelConfig, replyHistory) { chunk ->
+                            val last = messages.lastIndex
+                            if (last >= 0 && messages[last].role == "assistant") messages = messages.toMutableList().also { it[last] = it[last].copy(text = (it[last].text + chunk).take(60_000)) }
                         }
-                        root?.let { walk(it, "", 0) }
-                        result
-                    }
-                    else -> emptyList()
-                }
-            }
-        }.getOrElse { error = it.message ?: "Не удалось получить список файлов"; emptyList() }
-        workspaceFiles.clear()
-        workspaceFiles.addAll(discovered.sorted())
-        workspacePreviews.clear()
-        discovered.take(12).forEach { path ->
-            val preview = runCatching { withContext(Dispatchers.IO) { workspace.read(path).toString(Charsets.UTF_8).lineSequence().take(8).joinToString("\n") } }.getOrDefault("")
-            workspacePreviews[path] = preview
-        }
-    }
-    LaunchedEffect(gate) { gate.observeApprovals { pendingApproval = it } }
-    LaunchedEffect(sandbox) {
-        if (sandbox.listFiles().isNullOrEmpty()) {
-            File(sandbox, "tracker.py").writeText("from pathlib import Path\n\ndef main():\n    print('Hello from vinlagonChat sandbox')\n\nif __name__ == '__main__':\n    main()\n")
-            File(sandbox, "install.bat").writeText("@echo off\nREM Sample file preview; not executed by Android\necho vinlagonChat workspace\n")
-        }
-        filesVersion++
-    }
-    var editorFile by remember { mutableStateOf<String?>(null) }
-    var editorText by remember { mutableStateOf("") }
-    val listState = rememberLazyListState()
-    LaunchedEffect(messages.size, messages.lastOrNull()?.content?.length) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
-    }
-
-    Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp)) {
-            Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("vinlagonChat", fontSize = 21.sp, fontWeight = FontWeight.SemiBold)
-                    Text(if (githubActive) "AI агент · GitHub ${githubConfig.repository}" else if (workspaceUri == null) "AI агент · sandbox" else "AI агент · SAF-папка", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                }
-                TextButton(onClick = {
-                    if (githubConfig.token.isBlank()) showGitHubSettings = true else {
-                        githubActive = !githubActive
-                        context.getSharedPreferences("workspace", 0).edit().putBoolean("github_active", githubActive).apply()
-                    }
-                }) { Text(if (githubActive) "GitHub ✓" else "GitHub") }
-                TextButton(onClick = {
-                    githubActive = false
-                    context.getSharedPreferences("workspace", 0).edit().putBoolean("github_active", false).apply()
-                    treePicker.launch(null)
-                }) { Text("Папка") }
-                IconButton(onClick = { showSettings = true }) { Icon(Icons.Outlined.Settings, contentDescription = "Настройки API") }
-            }
-            LazyColumn(state = listState, modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (messages.isEmpty()) {
-                    item {
-                        Text("Начните диалог", Modifier.padding(top = 24.dp, bottom = 10.dp), fontSize = 25.sp, fontWeight = FontWeight.Medium)
-                        Text("Ответы поступают потоково. Ключ API хранится в Android Keystore.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(Modifier.height(20.dp))
-                        CollapsibleStepCard("Searched the web", StepKind.WEB, "DuckDuckGo Instant Answer + HTTPS page extraction are available as model tools.")
-                        CollapsibleStepCard("Ran commands 0", StepKind.COMMAND, "Allowlist: pwd, ls, cat in app sandbox only. No shell or root process is started.")
-                        CollapsibleStepCard("Edited files 0", StepKind.FILES, "Файлы ограничены внутренней sandbox-папкой приложения")
-                        Spacer(Modifier.height(12.dp))
-                    }
+                    } finally { api.close() }
                 } else {
-                    itemsIndexed(messages) { _, message ->
-                        Surface(
-                            Modifier.fillMaxWidth(),
-                            color = if (message.role == "user") MaterialTheme.colorScheme.surfaceVariant else MaterialTheme.colorScheme.surface,
-                            shape = RoundedCornerShape(16.dp), border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f))
-                        ) {
-                            Column(Modifier.padding(14.dp)) {
-                                Text(when (message.role) { "user" -> "Вы"; "tool" -> "Результат инструмента"; else -> "vinlagonChat" }, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                                Spacer(Modifier.height(5.dp))
-                                Text(message.content.ifEmpty { if (busy) "…" else "" })
-                            }
+                    val wantsFile = listOf("write", "create", "draft", "файл", "создай", "напиши", "составь", "черновик").any { text.contains(it, true) }
+                    if (wantsFile) {
+                        val plan = ToolEvent("Plan", "3 steps", listOf(ToolChild("1.", "Clarify the goal"), ToolChild("2.", "Write a reviewable draft"), ToolChild("3.", "Save it to the workspace")))
+                        messages = messages.toMutableList().also { val i = it.lastIndex; it[i] = it[i].copy(text = "", tools = listOf(plan)) }
+                        val stages = listOf("[agent] planning → drafting…", "[agent] writing → checking…")
+                        stages.forEach { stage -> messages = messages.toMutableList().also { val i = it.lastIndex; it[i] = it[i].copy(text = stage) }; delay(520) }
+                        val safeTitle = text.take(54).replace(Regex("[^\\p{L}\\p{N} ]"), "").trim().ifBlank { "Workspace draft" }
+                        val body = "# $safeTitle\n\n## Purpose\nA practical first draft based on your request. Review the details and add any dates or names before sharing.\n\n## Next steps\n- Confirm the audience and goal\n- Check the details\n- Share only when ready\n"
+                        val file = DemoFile("output/draft-${System.currentTimeMillis() % 10000}.md", body)
+                        File(context.filesDir, "sandbox/${file.path}").apply { parentFile?.mkdirs(); writeText(file.content) }
+                        generatedFiles.add(file)
+                        val tools = listOf(
+                            plan,
+                            ToolEvent("Wrote", "", listOf(ToolChild("›", "Saved", file.name, "${body.lines().size} lines", "open", "${body.lines().take(4).joinToString("\\n")}"))),
+                            ToolEvent("Listed files", "2 items", listOf(ToolChild("›", "output", meta = "folder"), ToolChild("›", "README.md", meta = "1.2 KB")))
+                        )
+                        val result = "I made a first-pass draft and saved it in the workspace. Open the file card to review or edit it before using it."
+                        var streamed = ""
+                        result.split(Regex("(?<= )")).forEach { word ->
+                            streamed += word
+                            messages = messages.toMutableList().also { val i = it.lastIndex; it[i] = it[i].copy(text = streamed, tools = tools) }
+                            delay(38)
+                        }
+                        replaceFileCard(file, messages.last().copy(text = streamed, tools = tools))
+                    } else {
+                        val answer = phrase(en,
+                            "You’re in preview mode. I can organize a draft, show the workspace, and demonstrate file review. Add your provider key in Settings → Model to use live AI replies.",
+                            "Сейчас включён режим предпросмотра. Я могу подготовить черновик и показать работу с файлами. Добавьте ключ провайдера в Настройки → Модель, чтобы включить ответы AI.")
+                        var streamed = ""
+                        answer.split(Regex("(?<= )")).forEach { word ->
+                            streamed += word
+                            val last = messages.lastIndex
+                            messages = messages.toMutableList().also { it[last] = it[last].copy(text = streamed) }
+                            delay(35)
                         }
                     }
                 }
-                if (!busy && messages.isNotEmpty() && lastFinishedAt > 0L) {
-                    item {
-                        ExecutionFooter(lastDuration, relativeAge(lastFinishedAt), onCopy = {
-                            clipboard.setText(AnnotatedString(messages.lastOrNull { it.role == "assistant" }?.content.orEmpty()))
-                        })
-                    }
-                }
-                item {
-                    workspaceFiles.forEach { path ->
-                        val language = path.substringAfterLast('.', "PLAIN").uppercase()
-                        ArtifactCard(path.substringAfterLast('/'), language, workspacePreviews[path].orEmpty()) {
-                            scope.launch {
-                                runCatching { workspace.read(path).toString(Charsets.UTF_8) }.onSuccess { content ->
-                                    editorFile = path
-                                    editorText = content
-                                }.onFailure { error = it.message ?: "Не удалось прочитать файл" }
-                            }
-                        }
-                    }
-                    if (error != null) {
-                        Text(error.orEmpty(), Modifier.fillMaxWidth().padding(8.dp), color = MaterialTheme.colorScheme.error)
-                    }
-                }
+                saveChatToHistory()
+            } catch (cancel: kotlinx.coroutines.CancellationException) {
+                val last = messages.lastIndex
+                if (last >= 0 && messages[last].role == "assistant") messages = messages.toMutableList().also { it[last] = it[last].copy(stopped = true) }
+                throw cancel
+            } catch (failure: Exception) {
+                showMessageToast(failure.message ?: phrase(en, "Something went wrong", "Произошла ошибка"))
+            } finally {
+                busy = false
+                responseJob = null
+                saveChatToHistory()
             }
-
-            Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface, tonalElevation = 1.dp) {
-                Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        AssistChip(onClick = { showModels = true }, label = { Text(selected, maxLines = 1) }, leadingIcon = { Icon(Icons.Outlined.Memory, null, Modifier.size(18.dp)) })
-                        Spacer(Modifier.weight(1f))
-                        Box {
-                            TextButton(onClick = { showSecurityMenu = true }) { Text(if (busy) "Генерация…" else gate.level.name) }
-                            DropdownMenu(expanded = showSecurityMenu, onDismissRequest = { showSecurityMenu = false }) {
-                                SecurityLevel.values().forEach { level ->
-                                    DropdownMenuItem(text = { Text(level.name) }, onClick = { gate.level = level; showSecurityMenu = false })
-                                }
-                            }
-                        }
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedTextField(value = prompt, onValueChange = { prompt = it }, modifier = Modifier.weight(1f),
-                            placeholder = { Text("Сообщение агенту") }, maxLines = 4, shape = RoundedCornerShape(14.dp), enabled = !busy && historyLoaded && localModelName == null)
-                        Spacer(Modifier.width(8.dp))
-                        FilledIconButton(onClick = {
-                            val text = prompt.trim()
-                            if (text.isNotEmpty() && !busy) {
-                                prompt = ""
-                                error = null
-                                messages.add(ChatMessage("user", text))
-                                messages.add(ChatMessage("assistant", ""))
-                                val startedAt = System.currentTimeMillis()
-                                busy = true
-                                scope.launch {
-                                    try {
-                                        var history = listOf(ChatMessage("system", "Ты полезный AI-ассистент. Используй инструменты только по необходимости; изменяй файлы только в активном workspace и не заявляй о невыполненной работе. Команды разрешены только внутри sandbox allowlist.")) + messages.dropLast(1)
-                                        for (round in 0..3) {
-                                            val reply = api.stream(
-                                                config,
-                                                history,
-                                                agentTools
-                                            ) { chunk ->
-                                                val last = messages.lastIndex
-                                                if (last >= 0 && messages[last].role == "assistant") {
-                                                    val current = messages[last].content
-                                                    val remaining = (60_000 - current.length).coerceAtLeast(0)
-                                                    if (remaining > 0) messages[last] = messages[last].copy(content = current + chunk.take(remaining))
-                                                }
-                                            }
-                                            if (reply.toolCalls.isEmpty()) break
-                                            val assistantIndex = messages.lastIndex
-                                            if (assistantIndex >= 0 && messages[assistantIndex].role == "assistant") {
-                                                messages[assistantIndex] = messages[assistantIndex].copy(toolCalls = reply.toolCalls)
-                                            }
-                                            history = history + ChatMessage("assistant", messages.getOrNull(assistantIndex)?.content.orEmpty(), toolCalls = reply.toolCalls)
-                                            val results = orchestrator.dispatch(reply.toolCalls)
-                                            filesVersion++
-                                            results.forEach { toolReply ->
-                                                val resultMessage = ChatMessage("tool", toolReply.result.content, toolCallId = toolReply.callId)
-                                                messages.add(resultMessage)
-                                                history = history + resultMessage
-                                            }
-                                            if (round < 3) {
-                                                messages.add(ChatMessage("assistant", ""))
-                                            }
-                                        }
-                                        if (messages.lastOrNull()?.role == "tool") {
-                                            messages.add(ChatMessage("assistant", "Достигнут предел последовательных вызовов инструментов. Продолжите новым сообщением."))
-                                        }
-                                    } catch (t: Throwable) {
-                                        error = t.message ?: "Ошибка запроса"
-                                        if (messages.isNotEmpty() && messages.last().role == "assistant" && messages.last().content.isBlank()) messages.removeAt(messages.lastIndex)
-                                    } finally {
-                                        runCatching { database.saveTranscript(messages.toList()) }
-                                        val finished = System.currentTimeMillis()
-                                        val elapsed = ((finished - startedAt).coerceAtLeast(0) / 1000)
-                                        lastDuration = "${elapsed / 60}m ${elapsed % 60}s"
-                                        lastFinishedAt = finished
-                                        busy = false
-                                    }
-                                }
-                            }
-                        }, enabled = prompt.isNotBlank() && !busy && historyLoaded && localModelName == null) {
-                            Icon(Icons.Outlined.ArrowUpward, contentDescription = "Отправить")
-                        }
-                    }
-                }
-            }
-            Spacer(Modifier.height(10.dp))
+        }
+    }
+    fun stopGeneration() { responseJob?.cancel(); busy = false }
+    fun clearHistory() {
+        previousMessages = messages.toList()
+        val oldHistory = history.toList()
+        history.clear()
+        messages = emptyList()
+        currentId = null
+        showMessageToast(phrase(en, "History cleared", "История очищена")) {
+            history.addAll(oldHistory)
+            messages = previousMessages.orEmpty()
+            previousMessages = null
         }
     }
 
-    if (showModels) {
-        ModalBottomSheet(onDismissRequest = { showModels = false }) {
-            Text("Выберите модель", Modifier.padding(horizontal = 20.dp, vertical = 8.dp), fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
-            options.groupBy { it.category }.forEach { (category, entries) ->
-                Text(category, Modifier.padding(start = 20.dp, top = 14.dp, bottom = 4.dp), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                entries.forEach { option ->
-                    ListItem(
-                        headlineContent = { Text(option.name) }, supportingContent = { Text(option.hint) },
-                        leadingContent = { Icon(if (option.category.startsWith("LOCAL")) Icons.Outlined.Memory else Icons.Outlined.Add, contentDescription = null) },
-                        trailingContent = { RadioButton(selected == option.name, onClick = null) },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).clickable {
-                            if (option.category.startsWith("LOCAL")) {
-                                showModels = false
-                                ggufPicker.launch(arrayOf("application/octet-stream", "*/*"))
-                            } else {
-                                localModelName = null
-                                localModelUri = null
-                                context.getSharedPreferences("models", 0).edit().remove("gguf_uri").remove("gguf_name").apply()
-                                selected = option.name
-                                if (option.name == options[1].name) config = config.copy(provider = ApiProvider.ANTHROPIC, endpoint = "https://api.anthropic.com/v1/messages", model = "claude-3-5-sonnet-latest")
-                                if (option.name == options[0].name) config = config.copy(provider = ApiProvider.OPENAI_COMPATIBLE, endpoint = "https://api.openai.com/v1/chat/completions", model = "gpt-4o-mini")
-                                showModels = false
-                            }
+    val listState = rememberLazyListState()
+    val showBack = listState.canScrollForward
+    val backAction = when {
+        currentFile != null -> { { currentFile = null; sourceMode = false } }
+        settingsOpen -> { { settingsOpen = false } }
+        workspaceOpen -> { { workspaceOpen = false } }
+        sidebarOpen -> { { sidebarOpen = false } }
+        workspaceWideOpen -> { { workspaceWideOpen = false } }
+        else -> null
+    }
+    BackHandler(enabled = backAction != null) { backAction?.invoke() }
+
+    BoxWithConstraints(Modifier.fillMaxSize().background(Paper.paper0).onPreviewKeyEvent { if (it.key == Key.Escape && backAction != null) { backAction.invoke(); true } else false }) {
+        val isWide = maxWidth >= 1024.dp
+        val sheetHeight = maxHeight * 0.65f
+        val sideWidth = if (isWide) 300.dp else maxWidth * 0.65f
+        val visibleSidebar = isWide && sidebarOpen || !isWide && sidebarOpen
+        val visibleWideWorkspace = isWide && workspaceWideOpen
+        Box(Modifier.fillMaxSize()) {
+            Canvas(Modifier.fillMaxSize()) {
+                val radius = maxOf(size.width, size.height) * 0.84f
+                drawRect(Brush.radialGradient(listOf(Paper.paper1.copy(alpha = 0.22f), Paper.paper0), center = androidx.compose.ui.geometry.Offset(size.width * 0.5f, size.height * 0.12f), radius = radius))
+                val random = Random(4821)
+                repeat(320) {
+                    val x = random.nextFloat() * size.width
+                    val y = random.nextFloat() * size.height
+                    drawCircle(Paper.ink0.copy(alpha = 0.018f), radius = random.nextFloat() * 0.7f + 0.25f, center = androidx.compose.ui.geometry.Offset(x, y))
+                }
+            }
+            Row(Modifier.fillMaxSize()) {
+                if (visibleSidebar && isWide) {
+                    Sidebar(history, currentId, true, en, onClose = { sidebarOpen = false }, onNew = ::newChat, onSettings = { settingsOpen = true; sidebarOpen = false }, onOpenChat = ::openHistory, onDelete = { id -> history.removeAll { it.id == id } }, onRename = { id, title -> val index = history.indexOfFirst { it.id == id }; if (index >= 0) history[index] = history[index].copy(title = title) })
+                }
+                Column(Modifier.weight(1f).fillMaxHeight().statusBarsPadding()) {
+                    TopBar(
+                        en = en, title = messages.firstOrNull { it.role == "user" }?.text,
+                        onMenu = { sidebarOpen = !sidebarOpen }, onWorkspace = { if (isWide) workspaceWideOpen = !workspaceWideOpen else workspaceOpen = true },
+                        onSettings = { settingsOpen = true }, onTitleClick = { if (messages.isNotEmpty()) showMessageToast(phrase(en, "Chat title", "Название чата")) },
+                        wide = isWide && sidebarOpen
+                    )
+                    if (settingsOpen) {
+                        SettingsScreen(
+                            en = en, config = modelConfig, selectedModel = selectedModel, selectedMode = selectedMode,
+                            tools = toolToggles, animations = animations, compact = compact, textScale = textScale,
+                            connectedGitHub = connectedGitHub, connectedDrive = connectedDrive,
+                            onBack = { settingsOpen = false }, onLanguage = ::setLanguage,
+                            onModel = { modelDialog = true }, onMode = { selectedMode = it; prefs.edit().putString("mode", it).apply() },
+                            onTool = { key, enabled -> toolToggles = toolToggles + (key to enabled) },
+                            onAnimation = { animations = it; prefs.edit().putBoolean("animations", it).apply() },
+                            onCompact = { compact = it; prefs.edit().putBoolean("compact", it).apply() },
+                            onTextScale = { textScale = it; prefs.edit().putFloat("text_scale", it).apply() },
+                            onGitHub = { connectedGitHub = !connectedGitHub; prefs.edit().putBoolean("github", connectedGitHub).apply(); if (!connectedGitHub) selectedMode = "Agent" },
+                            onDrive = { connectedDrive = !connectedDrive; prefs.edit().putBoolean("drive", connectedDrive).apply() },
+                            onFolder = { treePicker.launch(null) },
+                            onClear = ::clearHistory,
+                            onExport = { exportLauncher.launch("vinlagon-conversation.json") },
+                            onAboutLink = { url -> runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } }
+                        )
+                    } else {
+                        if (messages.isEmpty()) {
+                            Landing(en, compact, onSuggestion = { sendMessage(it) })
+                        } else {
+                            ChatTimeline(
+                                messages = messages, listState = listState, busy = busy, en = en, textScale = textScale, compact = compact,
+                                reducedMotion = !animations, onCopy = { clipboard.setText(AnnotatedString(it)); showMessageToast(phrase(en, "Copied", "Скопировано")) },
+                                onRetry = { val lastUser = messages.lastOrNull { it.role == "user" }?.text; if (lastUser != null) { messages = messages.dropLast(2); sendMessage(lastUser) } },
+                                onVote = ::setVote, onOpenFile = { name, body ->
+                                    val match = docsRoot.allFiles().firstOrNull { it.name == name } ?: DemoFile("output/$name", body)
+                                    currentFile = match; sourceMode = false; if (!workspaceOpen && !isWide) workspaceOpen = true else workspaceWideOpen = true
+                                }, modifier = Modifier.weight(1f)
+                            )
                         }
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).navigationBarsPadding()) {
+                            if (showBack && messages.isNotEmpty() && !settingsOpen) {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                                    IconButton(onClick = { scope.launch { listState.animateScrollToItem(messages.lastIndex) } }, modifier = Modifier.size(36.dp).background(Paper.paper1, RoundedCornerShape(10.dp))) { Icon(Icons.Outlined.ArrowDownward, null, tint = Paper.ink1, modifier = Modifier.size(18.dp)) }
+                                }
+                            }
+                            Composer(
+                                value = prompt, onValue = { prompt = it }, busy = busy, model = selectedModel,
+                                hint = phrase(en, if (messages.isEmpty()) "Ask anything…" else "What would you like to do?", if (messages.isEmpty()) "Спросите о чём угодно…" else "Что хотите сделать?"),
+                                caption = phrase(en, "AI can make mistakes — check important details", "AI может ошибаться — проверяйте важное"),
+                                canSend = prompt.isNotBlank(), onModel = { settingsOpen = true; modelDialog = true }, onSend = { sendMessage() }, onStop = ::stopGeneration, en = en
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+                    }
+                }
+                if (visibleWideWorkspace) {
+                    WorkspacePanel(
+                        height = maxHeight, en = en, currentFolder = currentFolder, currentFile = currentFile, sourceMode = sourceMode, extraFiles = generatedFiles,
+                        animations = animations, onClose = { workspaceWideOpen = false; currentFile = null }, onBack = { if (currentFile != null) currentFile = null else currentFolder = currentFolder.dropLast(1) }, onFolder = { currentFolder = it },
+                        onFile = { currentFile = it; sourceMode = false }, onSource = { sourceMode = it },
+                        onDownload = { currentFile?.let { downloadLauncher.launch(it.name) } },
+                        onCopy = { currentFile?.let { clipboard.setText(AnnotatedString(it.content)); showMessageToast(phrase(en, "Copied", "Скопировано")) } },
+                        modifier = Modifier.width(420.dp).fillMaxHeight()
                     )
                 }
             }
-            Spacer(Modifier.height(24.dp))
+            if (!isWide) {
+                AnimatedVisibility(sidebarOpen, modifier = Modifier.fillMaxSize(), enter = fadeIn(tween(if (animations) 240 else 1)), exit = fadeOut(tween(if (animations) 180 else 1))) {
+                    PanelScrim(Modifier.fillMaxSize(), animations) { sidebarOpen = false }
+                }
+                AnimatedVisibility(
+                    sidebarOpen,
+                    modifier = Modifier.fillMaxHeight().width(sideWidth).align(Alignment.CenterStart),
+                    enter = slideInHorizontally(tween(if (animations) 360 else 1)) { -it },
+                    exit = slideOutHorizontally(tween(if (animations) 360 else 1)) { -it }
+                ) {
+                    Sidebar(
+                        history, currentId, false, en, onClose = { sidebarOpen = false }, onNew = ::newChat,
+                        onSettings = { settingsOpen = true; sidebarOpen = false }, onOpenChat = ::openHistory,
+                        onDelete = { id -> history.removeAll { it.id == id } }, onRename = { id, title -> val index = history.indexOfFirst { it.id == id }; if (index >= 0) history[index] = history[index].copy(title = title) },
+                        modifier = Modifier.fillMaxHeight().width(sideWidth)
+                    )
+                }
+                AnimatedVisibility(workspaceOpen, modifier = Modifier.fillMaxSize(), enter = fadeIn(tween(if (animations) 240 else 1)), exit = fadeOut(tween(if (animations) 180 else 1))) {
+                    PanelScrim(Modifier.fillMaxSize(), animations) { workspaceOpen = false; currentFile = null }
+                }
+                AnimatedVisibility(
+                    workspaceOpen,
+                    modifier = Modifier.fillMaxWidth().height(sheetHeight).align(Alignment.BottomCenter),
+                    enter = slideInVertically(tween(if (animations) 360 else 1)) { it },
+                    exit = slideOutVertically(tween(if (animations) 360 else 1)) { it }
+                ) {
+                    WorkspacePanel(
+                        height = sheetHeight, en = en, currentFolder = currentFolder, currentFile = currentFile, sourceMode = sourceMode, extraFiles = generatedFiles,
+                        animations = animations, onClose = { workspaceOpen = false; currentFile = null }, onBack = { if (currentFile != null) currentFile = null else currentFolder = currentFolder.dropLast(1) }, onFolder = { currentFolder = it },
+                        onFile = { currentFile = it; sourceMode = false }, onSource = { sourceMode = it },
+                        onDownload = { currentFile?.let { downloadLauncher.launch(it.name) } },
+                        onCopy = { currentFile?.let { clipboard.setText(AnnotatedString(it.content)); showMessageToast(phrase(en, "Copied", "Скопировано")) } },
+                        modifier = Modifier.fillMaxWidth().height(sheetHeight)
+                    )
+                }
+            }
+            statusToast?.let { text ->
+                Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 26.dp).navigationBarsPadding().background(Paper.ink0, RoundedCornerShape(12.dp)).padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(text, color = Paper.paper2, fontSize = 14.sp)
+                    toastUndo?.let { undo ->
+                        Spacer(Modifier.width(16.dp))
+                        Text(phrase(en, "Undo", "Отменить"), Modifier.clickable { undo(); statusToast = null; toastUndo = null }, color = Paper.paper2, fontSize = 13.sp, textDecoration = TextDecoration.Underline)
+                    }
+                }
+            }
         }
     }
 
-    if (showGitHubSettings) {
-        GitHubSettingsDialog(githubConfig, onDismiss = { showGitHubSettings = false }, onSave = { next ->
-            runCatching { githubStore.save(next) }.onSuccess {
-                githubConfig = next
-                githubActive = true
-                context.getSharedPreferences("workspace", 0).edit().putBoolean("github_active", true).apply()
-                showGitHubSettings = false
-                error = null
-            }.onFailure { error = it.message ?: "GitHub config invalid" }
+    if (modelDialog) {
+        ModelConfigDialog(modelConfig, en, selectedModel, onDismiss = { modelDialog = false }, onSave = { next, label ->
+            runCatching { SecureModelConfigStore(context).save(next); modelConfig = next; selectedModel = label; prefs.edit().putString("model_label", label).apply(); modelDialog = false }
+                .onFailure { showMessageToast(it.message ?: "Could not save model settings") }
         })
-    }
-
-    if (showSettings) {
-        ModelSettingsDialog(config, onDismiss = { showSettings = false }, onSave = { next ->
-            runCatching { store.save(next) }.onSuccess {
-                config = next
-                selected = if (next.provider == ApiProvider.ANTHROPIC) options[1].name else options[0].name
-                error = null
-                showSettings = false
-            }.onFailure { error = it.message ?: "Не удалось сохранить настройки" }
-        })
-    }
-
-    pendingApproval?.let { approval ->
-        AlertDialog(
-            onDismissRequest = {
-                scope.launch { gate.resolveApproval(approval.id, false) }
-                pendingApproval = null
-            },
-            title = { Text("Подтвердить действие?") },
-            text = { Text("${approval.tool}\n${approval.summary}") },
-            confirmButton = { TextButton(onClick = {
-                pendingApproval = null
-                scope.launch { gate.resolveApproval(approval.id, true) }
-            }) { Text("Разрешить") } },
-            dismissButton = { TextButton(onClick = {
-                pendingApproval = null
-                scope.launch { gate.resolveApproval(approval.id, false) }
-            }) { Text("Отклонить") } }
-        )
-    }
-
-    if (editorFile != null) {
-        AlertDialog(
-            onDismissRequest = { editorFile = null },
-            title = { Text(editorFile ?: "Файл") },
-            text = { OutlinedTextField(editorText, { editorText = it }, Modifier.fillMaxWidth().heightIn(min = 220.dp), minLines = 8, maxLines = 18, textStyle = LocalTextStyle.current.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace)) },
-            confirmButton = { TextButton(onClick = {
-                val path = editorFile
-                if (path != null) scope.launch {
-                    runCatching { workspace.write(path, editorText.toByteArray(Charsets.UTF_8)); filesVersion++ }
-                        .onFailure { error = it.message ?: "Не удалось сохранить файл" }
-                }
-                editorFile = null
-            }) { Text("Сохранить") } },
-            dismissButton = { TextButton(onClick = { editorFile = null }) { Text("Закрыть") } }
-        )
     }
 }
 
 @Composable
-private fun ModelSettingsDialog(config: ApiModelConfig, onDismiss: () -> Unit, onSave: (ApiModelConfig) -> Unit) {
+private fun TopBar(en: Boolean, title: String?, onMenu: () -> Unit, onWorkspace: () -> Unit, onSettings: () -> Unit, onTitleClick: () -> Unit, wide: Boolean) {
+    Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (!wide) {
+            OutlinedGlyphButton("☰", phrase(en, "Open chats", "Открыть чаты"), onMenu)
+        } else Spacer(Modifier.width(40.dp))
+        Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.Center) {
+            if (!title.isNullOrBlank()) Row(Modifier.widthIn(max = 240.dp).clickable(onClick = onTitleClick), verticalAlignment = Alignment.CenterVertically) {
+                Text(title, color = Paper.ink1, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(" ⌄", color = Paper.ink2, fontSize = 14.sp)
+            }
+        }
+        OutlinedIconButton(onClick = onWorkspace, modifier = Modifier.size(40.dp), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.7.dp, Paper.line1), colors = IconButtonDefaults.outlinedIconButtonColors(contentColor = Paper.ink0)) { Icon(Icons.Outlined.FolderOpen, phrase(en, "Workspace", "Рабочая папка"), modifier = Modifier.size(20.dp)) }
+    }
+}
+
+@Composable
+private fun OutlinedGlyphButton(glyph: String, description: String, onClick: () -> Unit) {
+    Surface(Modifier.size(40.dp).clickable(onClick = onClick), color = Color.Transparent, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.7.dp, Paper.line1)) {
+        Box(contentAlignment = Alignment.Center) { Text(glyph, color = Paper.ink0, fontSize = 20.sp, modifier = Modifier.semanticsDescription(description)) }
+    }
+}
+
+private fun Modifier.semanticsDescription(value: String): Modifier = this.semantics { contentDescription = value }
+
+@Composable
+private fun Landing(en: Boolean, compact: Boolean, onSuggestion: (String) -> Unit) {
+    Box(Modifier.fillMaxSize().padding(horizontal = 20.dp), contentAlignment = Alignment.Center) {
+        Column(Modifier.fillMaxWidth().padding(bottom = if (compact) 0.dp else 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Vinlagon", color = Paper.ink0, fontFamily = UiSerif, fontWeight = FontWeight.SemiBold, fontSize = 24.sp)
+            Spacer(Modifier.height(20.dp))
+            Text(phrase(en, "What would you\nlike to do?", "Что хотите\nсделать?"), color = Paper.ink1, fontFamily = UiSerif, fontWeight = FontWeight.Normal, fontSize = 40.sp, lineHeight = 43.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Spacer(Modifier.height(12.dp))
+            Text(phrase(en, "A thoughtful assistant for work in progress.", "Спокойный помощник для ваших задач."), color = Paper.ink2, fontSize = 14.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Spacer(Modifier.height(20.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                LandingSuggestion(phrase(en, "Draft a file", "Создать черновик")) { onSuggestion(phrase(en, "Create a short project brief", "Создай короткий проектный бриф")) }
+                LandingSuggestion(phrase(en, "Explore notes", "Изучить заметки")) { onSuggestion(phrase(en, "Summarize my workspace notes", "Суммируй заметки рабочего пространства")) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RowScope.LandingSuggestion(text: String, onClick: () -> Unit) {
+    Surface(Modifier.weight(1f).heightIn(min = 44.dp).clickable(onClick = onClick), shape = RoundedCornerShape(12.dp), color = Paper.paper1, border = BorderStroke(1.dp, Paper.line0)) {
+        Box(contentAlignment = Alignment.Center) { Text(text, Modifier.padding(horizontal = 10.dp, vertical = 10.dp), color = Paper.ink1, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+    }
+}
+
+@Composable
+private fun ChatTimeline(
+    messages: List<UiMessage>, listState: androidx.compose.foundation.lazy.LazyListState, busy: Boolean, en: Boolean, textScale: Float, compact: Boolean,
+    reducedMotion: Boolean, onCopy: (String) -> Unit, onRetry: () -> Unit, onVote: (Int, Int) -> Unit,
+    onOpenFile: (String, String) -> Unit, modifier: Modifier = Modifier
+) {
+    LazyColumn(modifier.fillMaxWidth().padding(horizontal = 20.dp), state = listState, contentPadding = PaddingValues(top = 18.dp, bottom = 18.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 20.dp)) {
+        itemsIndexed(messages) { index, message ->
+            when (message.role) {
+                "user" -> UserBubble(message.text)
+                "assistant" -> Column(Modifier.fillMaxWidth()) {
+                    if (message.tools.isNotEmpty()) message.tools.forEach { event -> ToolGroup(event, reducedMotion) { action -> if (action.isNotBlank() && message.fileName != null) onOpenFile(message.fileName, message.fileBody) } }
+                    if (busy && index == messages.lastIndex) {
+                        Row(verticalAlignment = Alignment.CenterVertically) { PulseLabel("[agent] search → draft → check…", !reducedMotion) }
+                        Spacer(Modifier.height(4.dp))
+                    }
+                    if (message.text.isNotBlank()) Text(message.text + if (busy && index == messages.lastIndex) " ▍" else "", color = Paper.ink0, fontSize = (16 * textScale).sp, lineHeight = (26 * textScale).sp)
+                    if (message.stopped) Text("■ ${phrase(en, "stopped", "остановлено")}", Modifier.padding(top = 6.dp), color = Paper.ink2, fontSize = 12.sp)
+                    if (message.fileName != null) {
+                        Spacer(Modifier.height(12.dp))
+                        FileCard(message.fileName, message.fileBody, reducedMotion) { onOpenFile(message.fileName, message.fileBody) }
+                    }
+                    if (!busy && index == messages.lastIndex && message.text.isNotBlank()) AssistantActions(message.vote, { onCopy(message.text) }, onRetry, { onVote(index, it) }, en)
+                }
+                else -> Unit
+            }
+        }
+    }
+}
+
+@Composable
+private fun Sidebar(
+    history: SnapshotStateList<HistoryEntry>, selected: String?, wide: Boolean, en: Boolean,
+    onClose: () -> Unit, onNew: () -> Unit, onSettings: () -> Unit, onOpenChat: (HistoryEntry) -> Unit,
+    onDelete: (String) -> Unit, onRename: (String, String) -> Unit, modifier: Modifier = Modifier
+) {
+    var renameEntry by remember { mutableStateOf<HistoryEntry?>(null) }
+    Column(modifier.fillMaxHeight().background(Paper.paper1).then(if (wide) Modifier.width(300.dp) else Modifier.statusBarsPadding()).padding(horizontal = 16.dp)) {
+        Row(Modifier.fillMaxWidth().height(64.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Arena", Modifier.weight(1f), color = Paper.ink0, fontFamily = UiSerif, fontWeight = FontWeight.SemiBold, fontSize = 24.sp)
+            CloseButton(phrase(en, "Close chats", "Закрыть чаты"), onClose)
+        }
+        SidebarAction("＋", phrase(en, "New chat", "Новый чат"), false, onNew)
+        Spacer(Modifier.height(4.dp))
+        SidebarAction("⚙", phrase(en, "Settings", "Настройки"), false, onSettings)
+        Spacer(Modifier.height(18.dp))
+        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 20.dp)) {
+            listOf("TODAY", "YESTERDAY", "OLDER").forEach { group ->
+                val entries = history.filter { it.group == group }
+                if (entries.isNotEmpty()) {
+                    item { PaperSectionLabel(when (group) { "TODAY" -> phrase(en, "Today", "Сегодня"); "YESTERDAY" -> phrase(en, "Yesterday", "Вчера"); else -> phrase(en, "Older", "Более старые") }, Modifier.padding(top = 14.dp, bottom = 6.dp)) }
+                    itemsIndexed(entries, key = { _, item -> item.id }) { _, item ->
+                        var expanded by remember(item.id) { mutableStateOf(false) }
+                        Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(RoundedCornerShape(10.dp)).background(if (selected == item.id) Paper.paper3 else Color.Transparent).clickable { onOpenChat(item) }.padding(start = 10.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(item.title, Modifier.weight(1f), color = Paper.ink0, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Box {
+                                androidx.compose.material3.IconButton(onClick = { expanded = true }, modifier = Modifier.size(36.dp)) { Icon(Icons.Outlined.MoreHoriz, phrase(en, "Chat options", "Действия с чатом"), tint = Paper.ink2) }
+                                DropdownMenu(expanded, { expanded = false }) {
+                                    DropdownMenuItem(text = { Text(phrase(en, "Rename", "Переименовать")) }, onClick = { renameEntry = item; expanded = false })
+                                    DropdownMenuItem(text = { Text(phrase(en, "Delete", "Удалить")) }, onClick = { onDelete(item.id); expanded = false })
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    renameEntry?.let { entry ->
+        var title by remember(entry) { mutableStateOf(entry.title) }
+        AlertDialog(onDismissRequest = { renameEntry = null }, title = { Text(phrase(en, "Rename chat", "Переименовать чат")) }, text = { OutlinedTextField(title, { title = it }, singleLine = true) }, confirmButton = { TextButton(onClick = { onRename(entry.id, title); renameEntry = null }) { Text(phrase(en, "Save", "Сохранить")) } }, dismissButton = { TextButton(onClick = { renameEntry = null }) { Text(phrase(en, "Cancel", "Отмена")) } })
+    }
+}
+
+@Composable
+private fun SidebarAction(glyph: String, title: String, selected: Boolean, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).clip(RoundedCornerShape(10.dp)).background(if (selected) Paper.paper3 else Color.Transparent).clickable(onClick = onClick).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(glyph, color = Paper.ink1, fontSize = 19.sp, modifier = Modifier.width(28.dp))
+        Text(title, color = Paper.ink0, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+    }
+}
+
+@Composable
+private fun CloseButton(description: String, onClick: () -> Unit) {
+    Surface(Modifier.size(40.dp).clickable(onClick = onClick), color = Color.Transparent, shape = RoundedCornerShape(12.dp)) {
+        Box(contentAlignment = Alignment.Center) { Text("×", color = Paper.ink0, fontSize = 27.sp, modifier = Modifier.semanticsDescription(description)) }
+    }
+}
+
+@Composable
+private fun PanelScrim(modifier: Modifier, animations: Boolean, onDismiss: () -> Unit) {
+    Box(modifier.background(Paper.scrim).clickable(onClick = onDismiss).then(if (animations) Modifier else Modifier))
+}
+
+@Composable
+private fun WorkspacePanel(
+    height: androidx.compose.ui.unit.Dp, en: Boolean, currentFolder: List<String>, currentFile: DemoFile?, sourceMode: Boolean, extraFiles: List<DemoFile>, animations: Boolean,
+    onClose: () -> Unit, onBack: () -> Unit, onFolder: (List<String>) -> Unit, onFile: (DemoFile) -> Unit, onSource: (Boolean) -> Unit,
+    onDownload: () -> Unit, onCopy: () -> Unit, modifier: Modifier = Modifier
+) {
+    val folder = docsRoot.folderAt(currentFolder)
+    var dragTotal by remember { mutableFloatStateOf(0f) }
+    Column(
+        modifier.height(height).fillMaxWidth().navigationBarsPadding()
+            .pointerInput(Unit) { detectVerticalDragGestures(onVerticalDrag = { _, amount -> dragTotal += amount }, onDragEnd = { if (dragTotal > 52f) onClose(); dragTotal = 0f }) }
+            .background(Paper.paper1, RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+            .padding(horizontal = 16.dp),
+    ) {
+        Box(Modifier.fillMaxWidth().height(24.dp).pointerInput(Unit) { detectVerticalDragGestures(onVerticalDrag = { _, amount -> dragTotal += amount }, onDragEnd = { if (dragTotal > 32f) onClose(); dragTotal = 0f }) }, contentAlignment = Alignment.Center) {
+            Box(Modifier.width(44.dp).height(4.dp).background(Paper.paper3, RoundedCornerShape(4.dp)))
+        }
+        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (currentFile != null || currentFolder.isNotEmpty()) {
+                Surface(Modifier.size(40.dp).clickable(onClick = onBack), color = Color.Transparent, shape = RoundedCornerShape(12.dp)) {
+                    Box(contentAlignment = Alignment.Center) { Icon(Icons.Outlined.ArrowBack, phrase(en, "Back", "Назад"), tint = Paper.ink1) }
+                }
+            }
+            Column(Modifier.weight(1f)) {
+                Text(if (currentFile != null) currentFile.name else folder.name, color = Paper.ink0, fontSize = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                if (currentFile == null) Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Workspace", Modifier.clickable { onFolder(emptyList()) }, color = Paper.ink2, fontSize = 12.5.sp, fontFamily = UiMono)
+                    currentFolder.forEachIndexed { index, part ->
+                        Text(" › ", color = Paper.ink3, fontSize = 12.5.sp, fontFamily = UiMono)
+                        Text(part, Modifier.clickable { onFolder(currentFolder.take(index + 1)) }, color = Paper.ink2, fontSize = 12.5.sp, fontFamily = UiMono, maxLines = 1)
+                    }
+                }
+            }
+            if (currentFile != null) {
+                IconButton(onClick = onDownload, modifier = Modifier.size(40.dp)) { Icon(Icons.Outlined.Download, phrase(en, "Download", "Скачать"), tint = Paper.ink1) }
+            }
+            CloseButton(phrase(en, "Close workspace", "Закрыть рабочую папку"), onClose)
+        }
+        if (currentFile == null) {
+            val files = folder.allFilesHere() + if (currentFolder.lastOrNull() == "output") extraFiles else emptyList()
+            val allFiles = folder.allFiles() + if (currentFolder.isEmpty()) extraFiles else files.filter { it in extraFiles }
+            val totalBytes = allFiles.sumOf { it.size }
+            Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("${formatMB(totalBytes)} MB", color = Paper.ink2, fontSize = 12.5.sp, fontFamily = UiMono)
+                Text("${allFiles.size.coerceAtLeast(0)}/${"10K"} ${phrase(en, "files", "файлов")}", color = Paper.ink2, fontSize = 12.5.sp, fontFamily = UiMono)
+            }
+            Box(Modifier.fillMaxWidth().height(2.dp).background(Paper.line0)) { Box(Modifier.fillMaxWidth((allFiles.size / 10000f).coerceIn(0.01f, 1f)).fillMaxHeight().background(Paper.ink2)) }
+            Column(Modifier.weight(1f).padding(top = 10.dp).verticalScroll(rememberScrollState())) {
+                folder.folders.forEach { child ->
+                    val count = child.allFiles().size + if (child.name == "output") extraFiles.size else 0
+                    WorkspaceRow(child.name, "$count ${phrase(en, "items", "файла")}", "›") { onFolder(currentFolder + child.name) }
+                }
+                files.forEach { file -> WorkspaceRow(file.name, formatMB(file.size) + " MB", file.extension) { onFile(file) } }
+                if (folder.folders.isEmpty() && files.isEmpty()) Text(phrase(en, "Nothing here yet — the agent can create files here.", "Пока пусто — агент создаст файлы здесь."), Modifier.fillMaxWidth().padding(vertical = 28.dp), color = Paper.ink2, fontSize = 14.sp)
+            }
+        } else {
+            Row(Modifier.fillMaxWidth().padding(top = 14.dp, bottom = 10.dp).background(Paper.paper3, RoundedCornerShape(12.dp)).padding(3.dp)) {
+                Segment(phrase(en, "Preview", "Просмотр"), !sourceMode, Modifier.weight(1f)) { onSource(false) }
+                Segment(phrase(en, "Source", "Исходник"), sourceMode, Modifier.weight(1f)) { onSource(true) }
+            }
+            Box(Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Paper.paper2).border(BorderStroke(1.dp, Paper.line0), RoundedCornerShape(12.dp)).padding(14.dp)) {
+                if (sourceMode) Text(currentFile.content, Modifier.fillMaxSize().verticalScroll(rememberScrollState()), color = Paper.ink1, fontSize = 12.5.sp, lineHeight = 19.sp, fontFamily = UiMono)
+                else if (currentFile.extension == "HTML") {
+                    AndroidView(factory = { view -> WebView(view).apply { settings.javaScriptEnabled = false; webViewClient = WebViewClient(); loadDataWithBaseURL(null, currentFile.content.replace("<head>", "<head><style>body{font:16px system-ui;background:#FCFBF5;color:#221E15;padding:24px}a{color:#5F5947}</style>"), "text/html", "UTF-8", null) } }, update = { }, modifier = Modifier.fillMaxSize())
+                } else {
+                    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+                        currentFile.content.lines().forEach { line ->
+                            when {
+                                line.startsWith("# ") -> Text(line.drop(2), color = Paper.ink0, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold, fontFamily = UiSerif, modifier = Modifier.padding(bottom = 8.dp))
+                                line.startsWith("## ") -> Text(line.drop(3), color = Paper.ink0, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
+                                line.startsWith("- ") -> Text("• ${line.drop(2)}", color = Paper.ink0, fontSize = 15.sp, lineHeight = 23.sp)
+                                line.startsWith("`") && line.endsWith("`") -> Text(line.trim('`'), Modifier.background(Paper.paper3, RoundedCornerShape(6.dp)).padding(horizontal = 8.dp, vertical = 4.dp), color = Paper.ink1, fontSize = 12.sp, fontFamily = UiMono)
+                                line.isBlank() -> Spacer(Modifier.height(7.dp))
+                                else -> Text(line, color = Paper.ink0, fontSize = 15.sp, lineHeight = 24.sp)
+                            }
+                        }
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth().height(52.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(phrase(en, "Download", "Скачать"), Modifier.clickable(onClick = onDownload).padding(horizontal = 8.dp, vertical = 12.dp), color = Paper.ink1, fontSize = 14.sp, textDecoration = TextDecoration.Underline)
+                Spacer(Modifier.width(18.dp))
+                Text(phrase(en, "Copy", "Копировать"), Modifier.clickable(onClick = onCopy).padding(horizontal = 8.dp, vertical = 12.dp), color = Paper.ink1, fontSize = 14.sp, textDecoration = TextDecoration.Underline)
+            }
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceRow(title: String, meta: String, badge: String, onClick: () -> Unit) {
+    Column {
+        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(onClick = onClick).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, Modifier.weight(1f), color = Paper.ink0, fontSize = 15.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (badge != "›") Surface(color = Paper.paper1, shape = RoundedCornerShape(6.dp), border = BorderStroke(1.dp, Paper.line1)) { Text(badge, Modifier.padding(horizontal = 7.dp, vertical = 3.dp), color = Paper.ink1, fontSize = 11.sp, fontFamily = UiMono) }
+            Spacer(Modifier.width(10.dp))
+            Text(meta, color = Paper.ink2, fontSize = 12.sp, fontFamily = UiMono, maxLines = 1)
+            if (badge == "›") Text("  ›", color = Paper.ink2, fontSize = 18.sp)
+        }
+        HorizontalDivider(color = Paper.line0, modifier = Modifier.padding(start = 16.dp))
+    }
+}
+
+@Composable
+private fun Segment(label: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Surface(modifier.height(36.dp).clickable(onClick = onClick), color = if (selected) Paper.paper2 else Color.Transparent, shape = RoundedCornerShape(9.dp), shadowElevation = if (selected) 1.dp else 0.dp) {
+        Box(contentAlignment = Alignment.Center) { Text(label, color = if (selected) Paper.ink0 else Paper.ink1, fontSize = 13.sp, fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal) }
+    }
+}
+
+@Composable
+private fun SettingsScreen(
+    en: Boolean, config: ApiModelConfig, selectedModel: String, selectedMode: String, tools: Map<String, Boolean>, animations: Boolean, compact: Boolean, textScale: Float,
+    connectedGitHub: Boolean, connectedDrive: Boolean, onBack: () -> Unit, onLanguage: (Boolean) -> Unit,
+    onModel: () -> Unit, onMode: (String) -> Unit, onTool: (String, Boolean) -> Unit, onAnimation: (Boolean) -> Unit,
+    onCompact: (Boolean) -> Unit, onTextScale: (Float) -> Unit, onGitHub: () -> Unit, onDrive: () -> Unit, onFolder: () -> Unit,
+    onClear: () -> Unit, onExport: () -> Unit, onAboutLink: (String) -> Unit
+) {
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.Outlined.ArrowBack, phrase(en, "Back", "Назад"), tint = Paper.ink0) }
+            Text(phrase(en, "Settings", "Настройки"), Modifier.weight(1f), color = Paper.ink0, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Text(if (en) "EN" else "RU", Modifier.clickable { onLanguage(!en) }.padding(horizontal = 12.dp, vertical = 10.dp), color = Paper.ink1, fontFamily = UiMono, fontSize = 12.sp)
+        }
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
+            PaperSectionLabel(phrase(en, "Model", "Модель"), Modifier.padding(top = 18.dp, bottom = 4.dp))
+            SettingRow(phrase(en, "Provider and credentials", "Провайдер и ключ"), "${config.provider.name} · ${selectedModel}", phrase(en, "Configure", "Настроить"), onModel)
+            PaperSectionLabel(phrase(en, "Mode", "Режим"), Modifier.padding(top = 20.dp, bottom = 8.dp))
+            Row(Modifier.fillMaxWidth().background(Paper.paper3, RoundedCornerShape(12.dp)).padding(3.dp)) {
+                listOf("Agent", "GitHub", "Sandbox").forEach { mode -> Segment(phrase(en, mode, when (mode) { "Agent" -> "Агент"; "GitHub" -> "GitHub"; else -> "Песочница" }), selectedMode.equals(mode, true), Modifier.weight(1f)) { onMode(mode) } }
+            }
+            PaperSectionLabel(phrase(en, "Tools", "Инструменты"), Modifier.padding(top = 20.dp, bottom = 4.dp))
+            val toolRows = listOf("web_search" to "Web search", "read_page" to "Read page", "read_file" to "Read files", "write_file" to "Write files", "edit_file" to "Edit files", "list_files" to "List files", "run_command" to "Run commands", "github" to "GitHub tools")
+            toolRows.forEach { (key, name) -> SettingSwitchRow(phrase(en, name, when (key) { "web_search" -> "Поиск в интернете"; "read_page" -> "Читать страницы"; "read_file" -> "Читать файлы"; "write_file" -> "Создавать файлы"; "edit_file" -> "Редактировать файлы"; "list_files" -> "Список файлов"; "run_command" -> "Команды"; else -> "Инструменты GitHub" }), "${if (key == "github") 4 else 1} ${phrase(en, "tools", "инстр.")}", tools[key] ?: false) { onTool(key, it) } }
+            PaperSectionLabel(phrase(en, "Connectors", "Коннекторы"), Modifier.padding(top = 20.dp, bottom = 4.dp))
+            SettingRow("GitHub", if (connectedGitHub) phrase(en, "Connected", "Подключён") else phrase(en, "Private repositories", "Приватные репозитории"), phrase(en, if (connectedGitHub) "Disconnect" else "Connect", if (connectedGitHub) "Отключить" else "Подключить"), onGitHub)
+            SettingRow("Google Drive", if (connectedDrive) phrase(en, "Connected on this device", "Подключён на устройстве") else phrase(en, "Connect a folder", "Подключить папку"), phrase(en, if (connectedDrive) "Disconnect" else "Connect", if (connectedDrive) "Отключить" else "Подключить"), if (connectedDrive) onDrive else onFolder)
+            PaperSectionLabel(phrase(en, "Appearance", "Внешний вид"), Modifier.padding(top = 20.dp, bottom = 4.dp))
+            SettingSwitchRow(phrase(en, "Compact spacing", "Компактные отступы"), "", compact, onCompact)
+            SettingSwitchRow(phrase(en, "Animations", "Анимации"), phrase(en, "Reduced motion is also respected", "Учитывается системное снижение движения"), animations, onAnimation)
+            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(phrase(en, "Text size", "Размер текста"), Modifier.weight(1f), color = Paper.ink0, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                Text("A−", color = Paper.ink2)
+                Slider(value = textScale, onValueChange = onTextScale, valueRange = 0.9f..1.2f, steps = 2, modifier = Modifier.width(130.dp), colors = SliderDefaults.colors(thumbColor = Paper.ink0, activeTrackColor = Paper.ink1, inactiveTrackColor = Paper.line0))
+                Text("A+", color = Paper.ink2)
+            }
+            PaperSectionLabel(phrase(en, "Data", "Данные"), Modifier.padding(top = 20.dp, bottom = 4.dp))
+            SettingRow(phrase(en, "Conversation history", "История диалогов"), phrase(en, "Clear local history", "Очистить локальную историю"), phrase(en, "Clear", "Очистить"), onClear)
+            SettingRow(phrase(en, "Export", "Экспорт"), phrase(en, "Save this conversation as JSON", "Сохранить диалог в JSON"), phrase(en, "Export", "Экспорт"), onExport)
+            PaperSectionLabel(phrase(en, "About", "О приложении"), Modifier.padding(top = 20.dp, bottom = 4.dp))
+            SettingRow("Vinlagon", phrase(en, "Version 0.1.0 · preview", "Версия 0.1.0 · предпросмотр"), "", {})
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                listOf("Terms" to "https://example.com/terms", "Privacy" to "https://example.com/privacy", "Cookies" to "https://example.com/cookies").forEachIndexed { index, pair ->
+                    if (index > 0) Text(" · ", color = Paper.ink3)
+                    Text(phrase(en, pair.first, when (pair.first) { "Terms" -> "Условия"; "Privacy" -> "Конфиденциальность"; else -> "Cookie" }), Modifier.clickable { onAboutLink(pair.second) }, color = Paper.ink1, fontSize = 13.sp, textDecoration = TextDecoration.Underline)
+                }
+            }
+            Spacer(Modifier.height(32.dp))
+        }
+    }
+}
+
+@Composable
+private fun SettingRow(title: String, detail: String, action: String, onClick: () -> Unit) {
+    Column {
+        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable(onClick = onClick), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, color = Paper.ink0, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                if (detail.isNotBlank()) Text(detail, color = Paper.ink2, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            if (action.isNotBlank()) Text(action, color = Paper.ink1, fontSize = 13.sp, textDecoration = TextDecoration.Underline)
+        }
+        HorizontalDivider(color = Paper.line0)
+    }
+}
+
+@Composable
+private fun SettingSwitchRow(title: String, detail: String, value: Boolean, onChange: (Boolean) -> Unit) {
+    Column {
+        Row(Modifier.fillMaxWidth().heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(title, color = Paper.ink0, fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                if (detail.isNotBlank()) Text(detail, color = Paper.ink2, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Switch(checked = value, onCheckedChange = onChange, modifier = Modifier.height(44.dp), colors = SwitchDefaults.colors(checkedThumbColor = Paper.paper2, checkedTrackColor = Paper.ink0, checkedBorderColor = Paper.line1, uncheckedThumbColor = Paper.paper2, uncheckedTrackColor = Paper.paper3, uncheckedBorderColor = Paper.line1))
+        }
+        HorizontalDivider(color = Paper.line0)
+    }
+}
+
+@Composable
+private fun ModelConfigDialog(config: ApiModelConfig, en: Boolean, modelLabel: String, onDismiss: () -> Unit, onSave: (ApiModelConfig, String) -> Unit) {
     var provider by remember(config) { mutableStateOf(config.provider) }
     var endpoint by remember(config) { mutableStateOf(config.endpoint) }
     var model by remember(config) { mutableStateOf(config.model) }
     var key by remember(config) { mutableStateOf(config.apiKey) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Настройки модели") },
+        containerColor = Paper.paper1,
+        shape = RoundedCornerShape(20.dp),
+        title = { Text(phrase(en, "Model settings", "Настройки модели"), color = Paper.ink0) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row {
-                    FilterChip(provider == ApiProvider.OPENAI_COMPATIBLE, { provider = ApiProvider.OPENAI_COMPATIBLE }, label = { Text("OpenAI / Router") })
-                    Spacer(Modifier.width(6.dp))
-                    FilterChip(provider == ApiProvider.ANTHROPIC, { provider = ApiProvider.ANTHROPIC }, label = { Text("Anthropic") })
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(ApiProvider.OPENAI_COMPATIBLE, ApiProvider.ANTHROPIC).forEach { option -> FilterChip(selected = provider == option, onClick = { provider = option }, label = { Text(if (option == ApiProvider.ANTHROPIC) "Anthropic" else "OpenAI-compatible") }, colors = FilterChipDefaults.filterChipColors(selectedContainerColor = Paper.paper3, selectedLabelColor = Paper.ink0)) }
                 }
                 OutlinedTextField(endpoint, { endpoint = it }, label = { Text("HTTPS endpoint") }, singleLine = true)
-                OutlinedTextField(model, { model = it }, label = { Text("Model ID") }, singleLine = true)
+                OutlinedTextField(model, { model = it }, label = { Text(phrase(en, "Model ID", "ID модели")) }, singleLine = true)
                 OutlinedTextField(key, { key = it }, label = { Text("API key") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
-                Text("Ключ шифруется Android Keystore на устройстве.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(phrase(en, "No demo key is embedded. Credentials are encrypted with Android Keystore.", "Тестовый API-ключ не встроен. Данные шифруются Android Keystore."), color = Paper.ink2, fontSize = 12.sp)
             }
         },
-        confirmButton = { TextButton(onClick = { onSave(config.copy(provider = provider, endpoint = endpoint, model = model, apiKey = key)) }) { Text("Сохранить") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
+        confirmButton = { TextButton(onClick = { onSave(config.copy(provider = provider, endpoint = endpoint, model = model, apiKey = key), model.ifBlank { modelLabel }) }) { Text(phrase(en, "Save", "Сохранить"), color = Paper.ink0) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(phrase(en, "Cancel", "Отмена"), color = Paper.ink1) } }
     )
 }
 
-@Composable
-private fun GitHubSettingsDialog(config: GitHubConfig, onDismiss: () -> Unit, onSave: (GitHubConfig) -> Unit) {
-    var repository by remember(config) { mutableStateOf(config.repository) }
-    var branch by remember(config) { mutableStateOf(config.branch) }
-    var token by remember(config) { mutableStateOf(config.token) }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("GitHub workspace") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(repository, { repository = it }, label = { Text("owner/repository") }, singleLine = true)
-                OutlinedTextField(branch, { branch = it }, label = { Text("Branch") }, singleLine = true)
-                OutlinedTextField(token, { token = it }, label = { Text("Fine-grained token") }, singleLine = true, visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation())
-                Text("Токен хранится зашифрованным на устройстве. Нужны Contents: read/write для выбранного репозитория.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        },
-        confirmButton = { TextButton(onClick = { onSave(GitHubConfig(repository, branch, token)) }) { Text("Сохранить") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
-    )
-}
-
-private fun relativeAge(timestamp: Long): String {
-    val seconds = ((System.currentTimeMillis() - timestamp).coerceAtLeast(0) / 1000)
-    return when {
-        seconds < 60 -> "только что"
-        seconds < 3600 -> "${seconds / 60} мин назад"
-        seconds < 86400 -> "${seconds / 3600} ч назад"
-        else -> "${seconds / 86400} д назад"
-    }
-}
+private fun FolderNode.folderAt(path: List<String>): FolderNode = path.fold(this) { current, part -> current.folders.firstOrNull { it.name == part } ?: current }
+private fun FolderNode.allFilesHere(): List<DemoFile> = files
+private fun FolderNode.allFiles(): List<DemoFile> = files + folders.flatMap { it.allFiles() }
+private fun formatMB(bytes: Int): String = DecimalFormat("0.0").format(bytes / (1024.0 * 1024.0))
