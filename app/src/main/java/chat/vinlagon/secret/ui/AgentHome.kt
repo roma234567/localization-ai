@@ -19,6 +19,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
@@ -380,7 +381,7 @@ fun AgentHome() {
                 }
                 if (visibleWideWorkspace) {
                     WorkspacePanel(
-                        height = maxHeight, en = en, currentFolder = currentFolder, currentFile = currentFile, sourceMode = sourceMode, extraFiles = generatedFiles,
+                        height = this@BoxWithConstraints.maxHeight, en = en, currentFolder = currentFolder, currentFile = currentFile, sourceMode = sourceMode, extraFiles = generatedFiles,
                         animations = animations, onClose = { workspaceWideOpen = false; currentFile = null }, onBack = { if (currentFile != null) currentFile = null else currentFolder = currentFolder.dropLast(1) }, onFolder = { currentFolder = it },
                         onFile = { currentFile = it; sourceMode = false }, onSource = { sourceMode = it },
                         onDownload = { currentFile?.let { downloadLauncher.launch(it.name) } },
