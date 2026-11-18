@@ -145,16 +145,16 @@ fun AssistantActions(vote: Int, onCopy: () -> Unit, onRetry: () -> Unit, onVote:
         Text(if (en) "Copy" else "Копировать", Modifier.clickable(onClick = onCopy).padding(end = 16.dp), color = Paper.ink2, fontSize = 13.sp, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline)
         Text(if (en) "Retry" else "Повторить", Modifier.clickable(onClick = onRetry).padding(end = 16.dp), color = Paper.ink2, fontSize = 13.sp, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline)
         androidx.compose.material3.Icon(
-            androidx.compose.material.icons.Icons.Outlined.KeyboardArrowUp,
+            androidx.compose.material.icons.Icons.Outlined.Check,
             contentDescription = if (en) "Like" else "Нравится",
             tint = if (vote == 1) Paper.ink0 else Paper.ink2,
-            modifier = Modifier.clickable { onVote(if (vote == 1) 0 else 1) }.padding(horizontal = 8.dp, vertical = 4.dp).size(18.dp)
+            modifier = Modifier.clickable { onVote(if (vote == 1) 0 else 1) }.padding(horizontal = 8.dp, vertical = 4.dp).size(16.dp)
         )
         androidx.compose.material3.Icon(
-            androidx.compose.material.icons.Icons.Outlined.KeyboardArrowDown,
+            androidx.compose.material.icons.Icons.Outlined.Close,
             contentDescription = if (en) "Dislike" else "Не нравится",
             tint = if (vote == -1) Paper.ink0 else Paper.ink2,
-            modifier = Modifier.clickable { onVote(if (vote == -1) 0 else -1) }.padding(horizontal = 8.dp, vertical = 4.dp).size(18.dp)
+            modifier = Modifier.clickable { onVote(if (vote == -1) 0 else -1) }.padding(horizontal = 8.dp, vertical = 4.dp).size(16.dp)
         )
     }
 }
