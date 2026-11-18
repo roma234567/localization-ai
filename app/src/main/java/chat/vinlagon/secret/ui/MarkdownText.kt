@@ -147,6 +147,29 @@ fun MarkdownText(
                         lineHeight = (23f * textScale).sp
                     )
                 }
+                Regex("^\\d+\\.\\s+").containsMatchIn(trimmed) -> {
+                    val num = trimmed.substringBefore(".")
+                    val rest = trimmed.substringAfter(". ")
+                    Row(Modifier.fillMaxWidth()) {
+                        Text("$num.", color = Paper.ink2, fontSize = (15f * textScale).sp, modifier = Modifier.padding(end = 8.dp))
+                        Text(
+                            text = parseInlineMarkdown(rest),
+                            color = Paper.ink0,
+                            fontSize = (15f * textScale).sp,
+                            lineHeight = (23f * textScale).sp
+                        )
+                    }
+                }
+                trimmed.startsWith("> ") -> Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+                    Box(Modifier.width(2.dp).height(20.dp).background(Paper.line1))
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        text = parseInlineMarkdown(trimmed.drop(2)),
+                        color = Paper.ink1,
+                        fontSize = (14.5f * textScale).sp,
+                        lineHeight = (22f * textScale).sp
+                    )
+                }
                 trimmed == "---" || trimmed == "***" -> HorizontalDivider(color = Paper.line0, thickness = 1.dp)
                 else -> Text(
                     text = parseInlineMarkdown(line),

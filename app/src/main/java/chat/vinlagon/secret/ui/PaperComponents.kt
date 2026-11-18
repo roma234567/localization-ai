@@ -133,15 +133,7 @@ fun FileCard(fileName: String, body: String, reducedMotion: Boolean, onOpen: () 
             }
             HorizontalDivider(color = Paper.line0)
             Column(Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 16.dp)) {
-                body.lines().forEach { line ->
-                    when {
-                        line.startsWith("# ") -> Text(line.removePrefix("# "), color = Paper.ink0, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold, fontFamily = Serif, modifier = Modifier.padding(bottom = 8.dp))
-                        line.startsWith("## ") -> Text(line.removePrefix("## "), color = Paper.ink0, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
-                        line.startsWith("`") && line.endsWith("`") -> Surface(shape = RoundedCornerShape(6.dp), color = Paper.paper3) { Text(line.trim('`'), Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = Paper.ink1, fontSize = 12.sp, fontFamily = Mono) }
-                        line.isBlank() -> Spacer(Modifier.height(6.dp))
-                        else -> Text(line, color = Paper.ink0, fontSize = 15.sp, lineHeight = 24.sp, modifier = Modifier.padding(bottom = 3.dp))
-                    }
-                }
+                MarkdownText(body, textScale = 0.94f)
             }
         }
     }
@@ -152,8 +144,18 @@ fun AssistantActions(vote: Int, onCopy: () -> Unit, onRetry: () -> Unit, onVote:
     Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(if (en) "Copy" else "Копировать", Modifier.clickable(onClick = onCopy).padding(end = 16.dp), color = Paper.ink2, fontSize = 13.sp, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline)
         Text(if (en) "Retry" else "Повторить", Modifier.clickable(onClick = onRetry).padding(end = 16.dp), color = Paper.ink2, fontSize = 13.sp, textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline)
-        Text("↑", Modifier.clickable { onVote(if (vote == 1) 0 else 1) }.padding(horizontal = 8.dp), color = Paper.ink2, fontSize = 15.sp, fontWeight = if (vote == 1) FontWeight.Bold else FontWeight.Normal, textDecoration = if (vote == 1) androidx.compose.ui.text.style.TextDecoration.Underline else null)
-        Text("↓", Modifier.clickable { onVote(if (vote == -1) 0 else -1) }.padding(horizontal = 8.dp), color = Paper.ink2, fontSize = 15.sp, fontWeight = if (vote == -1) FontWeight.Bold else FontWeight.Normal, textDecoration = if (vote == -1) androidx.compose.ui.text.style.TextDecoration.Underline else null)
+        androidx.compose.material3.Icon(
+            androidx.compose.material.icons.Icons.Outlined.ThumbUp,
+            contentDescription = if (en) "Like" else "Нравится",
+            tint = if (vote == 1) Paper.ink0 else Paper.ink2,
+            modifier = Modifier.clickable { onVote(if (vote == 1) 0 else 1) }.padding(horizontal = 8.dp, vertical = 4.dp).size(16.dp)
+        )
+        androidx.compose.material3.Icon(
+            androidx.compose.material.icons.Icons.Outlined.ThumbDown,
+            contentDescription = if (en) "Dislike" else "Не нравится",
+            tint = if (vote == -1) Paper.ink0 else Paper.ink2,
+            modifier = Modifier.clickable { onVote(if (vote == -1) 0 else -1) }.padding(horizontal = 8.dp, vertical = 4.dp).size(16.dp)
+        )
     }
 }
 

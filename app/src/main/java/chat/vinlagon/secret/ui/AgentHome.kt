@@ -580,7 +580,11 @@ fun AgentHome() {
                 }
             }
             statusToast?.let { text ->
-                Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 26.dp).navigationBarsPadding().background(Paper.ink0, RoundedCornerShape(12.dp)).padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                LaunchedEffect(text) {
+                    delay(2500)
+                    if (statusToast == text) { statusToast = null; toastUndo = null }
+                }
+                Row(Modifier.align(Alignment.BottomCenter).padding(bottom = 148.dp).navigationBarsPadding().background(Paper.ink0, RoundedCornerShape(12.dp)).padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text(text, color = Paper.paper2, fontSize = 14.sp)
                     toastUndo?.let { undo ->
                         Spacer(Modifier.width(16.dp))
