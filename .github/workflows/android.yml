@@ -29,10 +29,10 @@ jobs:
           password="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
           keytool -genkeypair -v -keystore "$store" -storepass "$password" -keypass "$password" -alias vinlagon-test -keyalg RSA -keysize 2048 -validity 3650 -dname "CN=Vinlagon Test Build, OU=QA, O=Vinlagon, C=US"
           {
-            printf 'VINLAGON_KEYSTORE=%s\\n' "$store"
-            printf 'VINLAGON_STORE_PASSWORD=%s\\n' "$password"
-            printf 'VINLAGON_KEY_ALIAS=vinlagon-test\\n'
-            printf 'VINLAGON_KEY_PASSWORD=%s\\n' "$password"
+            echo "VINLAGON_KEYSTORE=$store"
+            echo "VINLAGON_STORE_PASSWORD=$password"
+            echo "VINLAGON_KEY_ALIAS=vinlagon-test"
+            echo "VINLAGON_KEY_PASSWORD=$password"
           } >> "$GITHUB_ENV"
       - name: Unit tests and APKs
         shell: bash
