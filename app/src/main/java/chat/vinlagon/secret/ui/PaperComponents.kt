@@ -1,6 +1,8 @@
 package chat.vinlagon.secret.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.Close
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
