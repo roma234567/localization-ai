@@ -2,6 +2,7 @@ package chat.vinlagon.secret.ui
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,20 +53,38 @@ fun MarkdownText(
                     i++
                 }
                 i++ // skip closing ```
+                val codeText = codeLines.joinToString("\n")
+                val clipboard = LocalClipboardManager.current
                 Surface(
                     color = Paper.paper3,
                     shape = RoundedCornerShape(10.dp),
                     border = BorderStroke(1.dp, Paper.line0),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = codeLines.joinToString("\n"),
-                        color = Paper.ink0,
-                        fontSize = (12.5f * textScale).sp,
-                        lineHeight = (19f * textScale).sp,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.horizontalScroll(rememberScrollState()).padding(12.dp)
-                    )
+                    Column(Modifier.fillMaxWidth()) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.End,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Copy",
+                                color = Paper.ink2,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.clickable { clipboard.setText(AnnotatedString(codeText)) }
+                            )
+                        }
+                        HorizontalDivider(color = Paper.line0, thickness = 1.dp)
+                        Text(
+                            text = codeText,
+                            color = Paper.ink0,
+                            fontSize = (12.5f * textScale).sp,
+                            lineHeight = (19f * textScale).sp,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.horizontalScroll(rememberScrollState()).padding(12.dp)
+                        )
+                    }
                 }
                 continue
             }

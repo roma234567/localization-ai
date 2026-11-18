@@ -130,6 +130,7 @@ fun AgentHome() {
     var en by remember { mutableStateOf(prefs.getBoolean("english", true)) }
     var sidebarOpen by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
+    var skillsScreenOpen by remember { mutableStateOf(false) }
     var workspaceOpen by remember { mutableStateOf(false) }
     var workspaceWideOpen by remember { mutableStateOf(false) }
     var currentFolder by remember { mutableStateOf(emptyList<String>()) }
@@ -159,7 +160,40 @@ fun AgentHome() {
     val attachments = remember { mutableStateListOf<ChatAttachment>() }
     val profiles = remember { mutableStateListOf(*defaultProviderPresets().toTypedArray()) }
     var activeProfileId by remember { mutableStateOf(profiles.first().id) }
-    val skills = remember { mutableStateListOf(*defaultClaudeCodeSkills().toTypedArray()) }
+    val skills = remember {
+        val saved = prefs.getString("saved_skills_json", null)
+        val loaded = if (!saved.isNullOrBlank()) {
+            runCatching {
+                val arr = org.json.JSONArray(saved)
+                (0 until arr.length()).map { idx ->
+                    val o = arr.getJSONObject(idx)
+                    AgentSkill(
+                        id = o.getString("id"),
+                        command = o.getString("command"),
+                        titleEn = o.getString("titleEn"),
+                        titleRu = o.getString("titleRu"),
+                        descriptionEn = o.getString("descriptionEn"),
+                        descriptionRu = o.getString("descriptionRu"),
+                        promptTemplate = o.getString("promptTemplate"),
+                        enabled = o.optBoolean("enabled", true),
+                        custom = o.optBoolean("custom", false)
+                    )
+                }
+            }.getOrNull()
+        } else null
+        mutableStateListOf(*(loaded ?: defaultClaudeCodeSkills()).toTypedArray())
+    }
+    LaunchedEffect(skills.toList()) {
+        val arr = org.json.JSONArray()
+        skills.forEach { s ->
+            arr.put(org.json.JSONObject().apply {
+                put("id", s.id); put("command", s.command); put("titleEn", s.titleEn); put("titleRu", s.titleRu)
+                put("descriptionEn", s.descriptionEn); put("descriptionRu", s.descriptionRu)
+                put("promptTemplate", s.promptTemplate); put("enabled", s.enabled); put("custom", s.custom)
+            })
+        }
+        prefs.edit().putString("saved_skills_json", arr.toString()).apply()
+    }
     val filePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         uris.forEach { uri ->
             val name = uri.lastPathSegment?.substringAfterLast('/') ?: "attachment"
@@ -171,7 +205,37 @@ fun AgentHome() {
     var currentId by remember { mutableStateOf<String?>(null) }
     var messages by remember { mutableStateOf<List<UiMessage>>(emptyList()) }
     var previousMessages by remember { mutableStateOf<List<UiMessage>?>(null) }
-    val history = remember { mutableStateListOf<HistoryEntry>() }
+    val history = remember {
+        val saved = prefs.getString("saved_history_json", null)
+        val loaded = if (!saved.isNullOrBlank()) {
+            runCatching {
+                val arr = org.json.JSONArray(saved)
+                (0 until arr.length()).map { idx ->
+                    val o = arr.getJSONObject(idx)
+                    val msgsArr = o.getJSONArray("messages")
+                    val msgs = (0 until msgsArr.length()).map { mIdx ->
+                        val mo = msgsArr.getJSONObject(mIdx)
+                        UiMessage(mo.getString("role"), mo.getString("text"))
+                    }
+                    HistoryEntry(o.getString("id"), o.getString("title"), o.optString("group", "TODAY"), msgs)
+                }
+            }.getOrNull()
+        } else null
+        mutableStateListOf(*(loaded ?: emptyList()).toTypedArray())
+    }
+    LaunchedEffect(history.toList()) {
+        val arr = org.json.JSONArray()
+        history.take(30).forEach { h ->
+            val msgsArr = org.json.JSONArray()
+            h.messages.forEach { m ->
+                msgsArr.put(org.json.JSONObject().apply { put("role", m.role); put("text", m.text) })
+            }
+            arr.put(org.json.JSONObject().apply {
+                put("id", h.id); put("title", h.title); put("group", h.group); put("messages", msgsArr)
+            })
+        }
+        prefs.edit().putString("saved_history_json", arr.toString()).apply()
+    }
     fun showMessageToast(text: String, undo: (() -> Unit)? = null) {
         toastUndo = undo
         statusToast = text
@@ -250,7 +314,7 @@ fun AgentHome() {
                     val api = ApiChatClient()
                     val workspaceDir = java.io.File(context.filesDir, "workspace").apply { mkdirs() }
                     try {
-                        val baseSystemPrompt = "You are a concise, careful assistant. When you need to execute a tool, wrap the JSON strictly in <tool_call>...</tool_call> tags on its own line, e.g. <tool_call>{\"tool\":\"write|read|list|bash\",\"path\":\"...\",\"content\":\"...\",\"command\":\"...\"}</tool_call>. Never wrap example JSON in <tool_call> tags when just explaining tools. Give brief progress updates, not private reasoning."
+                        val baseSystemPrompt = "You are a concise, careful assistant. When you need to execute a tool, wrap the JSON strictly in <tool_call>...</tool_call> tags on its own line, e.g. <tool_call>{\"tool\":\"write|read|edit|list|bash\",\"path\":\"...\",\"content\":\"...\",\"old_text\":\"...\",\"new_text\":\"...\",\"command\":\"...\"}</tool_call>. Never wrap example JSON in <tool_call> tags when just explaining tools. Give brief progress updates, not private reasoning."
                         val systemPrompt = if (devModeUnlocked && customSystemPrompt.isNotBlank()) "$baseSystemPrompt\n\n$customSystemPrompt" else baseSystemPrompt
                         val conversation = mutableListOf(
                             chat.vinlagon.secret.agent.ChatMessage("system", systemPrompt),
@@ -287,6 +351,27 @@ fun AgentHome() {
                                     val target = java.io.File(workspaceDir, pathArg)
                                     val body = if (target.exists() && target.isFile) target.readText().take(8000) else "File not found: $pathArg"
                                     Triple(ToolEvent("Read", pathArg, listOf(ToolChild("↳", pathArg))), body, null)
+                                }
+                                "edit" -> {
+                                    val oldArg = Regex("\"old_text\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(toolJson)?.groupValues?.get(1)?.replace("\\n", "\n")?.replace("\\\"", "\"") ?: ""
+                                    val newArg = Regex("\"new_text\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(toolJson)?.groupValues?.get(1)?.replace("\\n", "\n")?.replace("\\\"", "\"") ?: ""
+                                    val target = java.io.File(workspaceDir, pathArg)
+                                    if (target.exists() && target.isFile && oldArg.isNotEmpty()) {
+                                        val currentText = target.readText()
+                                        if (currentText.contains(oldArg)) {
+                                            val updated = currentText.replaceFirst(oldArg, newArg)
+                                            target.writeText(updated)
+                                            val ev = ToolEvent("Edit", target.name, listOf(
+                                                ToolChild("-", oldArg.lines().firstOrNull()?.take(60) ?: oldArg.take(60)),
+                                                ToolChild("+", newArg.lines().firstOrNull()?.take(60) ?: newArg.take(60))
+                                            ))
+                                            Triple(ev, "Edited ${target.name}", DemoFile(target.name, updated))
+                                        } else {
+                                            Triple(ToolEvent("Edit", pathArg, failed = true), "old_text not found in $pathArg", null)
+                                        }
+                                    } else {
+                                        Triple(ToolEvent("Edit", pathArg, failed = true), "File not found: $pathArg", null)
+                                    }
                                 }
                                 "list" -> {
                                     val list = workspaceDir.listFiles()?.joinToString("\n") { it.name } ?: "(empty)"
@@ -422,7 +507,24 @@ fun AgentHome() {
                         onSettings = { settingsOpen = true }, onTitleClick = { if (messages.isNotEmpty()) showMessageToast(phrase(en, "Chat title", "Название чата")) },
                         wide = isWide && sidebarOpen
                     )
-                    if (settingsOpen) {
+                    if (skillsScreenOpen) {
+                        SkillsScreen(
+                            en = en,
+                            skills = skills,
+                            onBack = { skillsScreenOpen = false },
+                            onToggleSkill = { id, enabled ->
+                                val idx = skills.indexOfFirst { it.id == id }
+                                if (idx >= 0) skills[idx] = skills[idx].copy(enabled = enabled)
+                            },
+                            onAddSkill = { newSkill ->
+                                skills.add(newSkill)
+                                showMessageToast(phrase(en, "Skill added: ${newSkill.command}", "Скилл добавлен: ${newSkill.command}"))
+                            },
+                            onDeleteSkill = { id ->
+                                skills.removeAll { it.id == id }
+                            }
+                        )
+                    } else if (settingsOpen) {
                         SettingsScreen(
                             en = en, config = modelConfig, selectedModel = selectedModel, selectedMode = selectedMode,
                             tools = toolToggles, animations = animations, compact = compact, textScale = textScale,
@@ -464,7 +566,8 @@ fun AgentHome() {
                                 customSystemPrompt = nextPrompt
                                 prefs.edit().putString("custom_system_prompt", nextPrompt).apply()
                                 showMessageToast(phrase(en, "System prompt saved", "Системный промпт сохранён"))
-                            }
+                            },
+                            onOpenSkills = { skillsScreenOpen = true }
                         )
                     } else {
                         if (messages.isEmpty()) {
@@ -521,7 +624,7 @@ fun AgentHome() {
                             Composer(
                                 value = prompt, onValue = { prompt = it }, busy = busy, model = selectedModel,
                                 hint = phrase(en, if (messages.isEmpty()) "Ask anything…" else "What would you like to do?", if (messages.isEmpty()) "Спросите о чём угодно…" else "Что хотите сделать?"),
-                                caption = phrase(en, "AI can make mistakes — check important details", "AI может ошибаться — проверяйте важное"),
+                                caption = "~${(messages.sumOf { it.text.length } + prompt.length) / 4} tok · " + phrase(en, "AI can make mistakes — check important details", "AI может ошибаться — проверяйте важное"),
                                 canSend = prompt.isNotBlank() || attachments.isNotEmpty(), onModel = { settingsOpen = true; modelDialog = true },
                                 onAttach = { filePicker.launch(arrayOf("*/*")) },
                                 onSend = { sendMessage() }, onStop = ::stopGeneration, en = en
@@ -820,10 +923,56 @@ private fun WorkspacePanel(
                     }
                 }
             }
+            var showNewFileDialog by remember { mutableStateOf(false) }
+            var newFileName by remember { mutableStateOf("") }
+            var refreshTick by remember { mutableIntStateOf(0) }
             if (currentFile != null) {
+                Text(phrase(en, "Delete", "Удалить"), Modifier.clickable {
+                    val target = java.io.File(java.io.File(context.filesDir, "workspace"), (currentFolder + currentFile.name).joinToString("/"))
+                    if (target.exists()) target.delete()
+                    refreshTick++
+                    onBack()
+                }.padding(horizontal = 8.dp, vertical = 6.dp), color = Paper.ink2, fontSize = 12.sp, fontFamily = UiMono)
                 IconButton(onClick = onDownload, modifier = Modifier.size(40.dp)) { Icon(Icons.Outlined.Download, phrase(en, "Download", "Скачать"), tint = Paper.ink1) }
             } else {
+                Text("+", Modifier.clickable { showNewFileDialog = true }.padding(horizontal = 8.dp, vertical = 6.dp), color = Paper.ink0, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
                 Text(phrase(en, "Folder", "Папка"), Modifier.clickable(onClick = onPickFolder).padding(horizontal = 8.dp, vertical = 6.dp), color = Paper.ink2, fontSize = 12.sp, fontFamily = UiMono)
+            }
+            if (showNewFileDialog) {
+                AlertDialog(
+                    onDismissRequest = { showNewFileDialog = false; newFileName = "" },
+                    containerColor = Paper.paper1,
+                    titleContentColor = Paper.ink0,
+                    textContentColor = Paper.ink0,
+                    title = { Text(phrase(en, "New file", "Новый файл"), fontWeight = FontWeight.SemiBold) },
+                    text = {
+                        OutlinedTextField(
+                            value = newFileName,
+                            onValueChange = { newFileName = it },
+                            singleLine = true,
+                            label = { Text(phrase(en, "File name (e.g. notes.md)", "Имя файла (напр. notes.md)")) }
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            val clean = newFileName.trim()
+                            if (clean.isNotEmpty()) {
+                                val dir = java.io.File(java.io.File(context.filesDir, "workspace"), currentFolder.joinToString("/")).apply { mkdirs() }
+                                val f = java.io.File(dir, clean)
+                                if (!f.exists()) f.writeText("")
+                                refreshTick++
+                                showNewFileDialog = false
+                                newFileName = ""
+                                onFile(DemoFile(clean, ""))
+                            }
+                        }) { Text(phrase(en, "Create", "Создать"), color = Paper.ink0) }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showNewFileDialog = false; newFileName = "" }) {
+                            Text(phrase(en, "Cancel", "Отмена"), color = Paper.ink2)
+                        }
+                    }
+                )
             }
             CloseButton(phrase(en, "Close workspace", "Закрыть рабочую папку"), onClose)
         }
@@ -908,7 +1057,8 @@ private fun SettingsScreen(
     profiles: List<ModelProfile>, activeProfileId: String, onSelectProfile: (ModelProfile) -> Unit,
     skills: List<AgentSkill>, onToggleSkill: (String, Boolean) -> Unit,
     devModeUnlocked: Boolean, customSystemPrompt: String,
-    onUnlockDevMode: () -> Unit, onLockDevMode: () -> Unit, onSaveSystemPrompt: (String) -> Unit
+    onUnlockDevMode: () -> Unit, onLockDevMode: () -> Unit, onSaveSystemPrompt: (String) -> Unit,
+    onOpenSkills: () -> Unit
 ) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -933,13 +1083,12 @@ private fun SettingsScreen(
             val toolRows = listOf("web_search" to "Web search", "read_page" to "Read page", "read_file" to "Read files", "write_file" to "Write files", "edit_file" to "Edit files", "list_files" to "List files", "run_command" to "Run commands", "github" to "GitHub tools")
             toolRows.forEach { (key, name) -> SettingSwitchRow(phrase(en, name, when (key) { "web_search" -> "Поиск в интернете"; "read_page" -> "Читать страницы"; "read_file" -> "Читать файлы"; "write_file" -> "Создавать файлы"; "edit_file" -> "Редактировать файлы"; "list_files" -> "Список файлов"; "run_command" -> "Команды"; else -> "Инструменты GitHub" }), "${if (key == "github") 4 else 1} ${phrase(en, "tools", "инстр.")}", tools[key] ?: false) { onTool(key, it) } }
             PaperSectionLabel(phrase(en, "Skills (Claude Code)", "Скилы (Claude Code)"), Modifier.padding(top = 20.dp, bottom = 4.dp))
-            skills.forEach { skill ->
-                SettingSwitchRow(
-                    "${skill.command} · ${if (en) skill.titleEn else skill.titleRu}",
-                    if (en) skill.descriptionEn else skill.descriptionRu,
-                    skill.enabled
-                ) { onToggleSkill(skill.id, it) }
-            }
+            SettingRow(
+                phrase(en, "Skills & SKILL.md", "Скилы и SKILL.md"),
+                "${skills.count { it.enabled }}/${skills.size} ${phrase(en, "enabled", "вкл.")}",
+                phrase(en, "Manage", "Открыть"),
+                onOpenSkills
+            )
             PaperSectionLabel(phrase(en, "Developer", "Разработчик"), Modifier.padding(top = 20.dp, bottom = 4.dp))
             if (!devModeUnlocked) {
                 SettingRow(
@@ -1059,3 +1208,113 @@ private fun FolderNode.folderAt(path: List<String>): FolderNode = path.fold(this
 private fun FolderNode.allFilesHere(): List<DemoFile> = files
 private fun FolderNode.allFiles(): List<DemoFile> = files + folders.flatMap { it.allFiles() }
 private fun formatMB(bytes: Int): String = DecimalFormat("0.0").format(bytes / (1024.0 * 1024.0))
+
+@Composable
+private fun SkillsScreen(
+    en: Boolean,
+    skills: List<AgentSkill>,
+    onBack: () -> Unit,
+    onToggleSkill: (String, Boolean) -> Unit,
+    onAddSkill: (AgentSkill) -> Unit,
+    onDeleteSkill: (String) -> Unit
+) {
+    val context = LocalContext.current
+    var showAddDialog by remember { mutableStateOf(false) }
+    var cmdInput by remember { mutableStateOf("/") }
+    var titleInput by remember { mutableStateOf("") }
+    var descInput by remember { mutableStateOf("") }
+    var promptInput by remember { mutableStateOf("") }
+
+    val skillImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            runCatching {
+                val text = context.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: ""
+                val fileName = uri.lastPathSegment?.substringAfterLast('/')?.substringBeforeLast('.') ?: "custom"
+                val firstHeading = text.lines().firstOrNull { it.startsWith("# ") }?.drop(2)?.trim() ?: fileName
+                val cmd = "/${fileName.lowercase().replace(Regex("[^a-z0-9_-]"), "")}"
+                onAddSkill(
+                    AgentSkill(
+                        id = "custom-${System.currentTimeMillis()}",
+                        command = if (cmd == "/") "/skill" else cmd,
+                        titleEn = firstHeading,
+                        titleRu = firstHeading,
+                        descriptionEn = "Imported from SKILL.md",
+                        descriptionRu = "Импортировано из SKILL.md",
+                        promptTemplate = text.take(2000) + "\n\n",
+                        enabled = true,
+                        custom = true
+                    )
+                )
+            }
+        }
+    }
+
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) { Icon(Icons.Outlined.ArrowBack, phrase(en, "Back", "Назад"), tint = Paper.ink0) }
+            Text(phrase(en, "Skills (Claude Code)", "Скилы (Claude Code)"), Modifier.weight(1f), color = Paper.ink0, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+            Text(phrase(en, "Import", "Импорт"), Modifier.clickable { skillImporter.launch(arrayOf("text/*", "text/markdown", "*/*")) }.padding(horizontal = 10.dp, vertical = 8.dp), color = Paper.ink1, fontFamily = UiMono, fontSize = 12.sp)
+            Text("+", Modifier.clickable { showAddDialog = true }.padding(horizontal = 10.dp, vertical = 8.dp), color = Paper.ink0, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        }
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp)) {
+            skills.forEach { skill ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
+                        SettingSwitchRow(
+                            "${skill.command} · ${if (en) skill.titleEn else skill.titleRu}",
+                            if (en) skill.descriptionEn else skill.descriptionRu,
+                            skill.enabled
+                        ) { onToggleSkill(skill.id, it) }
+                    }
+                    if (skill.custom) {
+                        Text("×", Modifier.clickable { onDeleteSkill(skill.id) }.padding(start = 8.dp, top = 8.dp, bottom = 8.dp), color = Paper.ink2, fontSize = 18.sp)
+                    }
+                }
+            }
+            Spacer(Modifier.height(24.dp))
+        }
+    }
+
+    if (showAddDialog) {
+        AlertDialog(
+            onDismissRequest = { showAddDialog = false },
+            containerColor = Paper.paper1,
+            titleContentColor = Paper.ink0,
+            textContentColor = Paper.ink0,
+            title = { Text(phrase(en, "New skill", "Новый скилл"), fontWeight = FontWeight.SemiBold) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(cmdInput, { cmdInput = it }, label = { Text(phrase(en, "Command (e.g. /test)", "Команда (напр. /test)")) }, singleLine = true)
+                    OutlinedTextField(titleInput, { titleInput = it }, label = { Text(phrase(en, "Title", "Название")) }, singleLine = true)
+                    OutlinedTextField(descInput, { descInput = it }, label = { Text(phrase(en, "Description", "Описание")) }, singleLine = true)
+                    OutlinedTextField(promptInput, { promptInput = it }, label = { Text(phrase(en, "Prompt template", "Шаблон промпта")) }, minLines = 3, maxLines = 5)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val cmd = if (cmdInput.startsWith("/")) cmdInput.trim() else "/${cmdInput.trim()}"
+                    if (cmd.length > 1 && titleInput.isNotBlank()) {
+                        onAddSkill(
+                            AgentSkill(
+                                id = "custom-${System.currentTimeMillis()}",
+                                command = cmd,
+                                titleEn = titleInput.trim(),
+                                titleRu = titleInput.trim(),
+                                descriptionEn = descInput.ifBlank { "Custom skill" },
+                                descriptionRu = descInput.ifBlank { "Пользовательский скилл" },
+                                promptTemplate = promptInput.ifBlank { "$titleInput: " },
+                                enabled = true,
+                                custom = true
+                            )
+                        )
+                        showAddDialog = false
+                        cmdInput = "/"; titleInput = ""; descInput = ""; promptInput = ""
+                    }
+                }) { Text(phrase(en, "Add", "Добавить"), color = Paper.ink0) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddDialog = false }) { Text(phrase(en, "Cancel", "Отмена"), color = Paper.ink2) }
+            }
+        )
+    }
+}
