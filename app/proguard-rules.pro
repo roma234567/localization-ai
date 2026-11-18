@@ -1,0 +1,3 @@
+-keep class net.zetetic.database.sqlcipher.** { *; }
+-keep class chat.vinlagon.secret.agent.NativeRuntime { *; }
+-keepclasseswithmembernames class * { native <methods>; }
