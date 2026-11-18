@@ -140,7 +140,7 @@ fun AgentHome() {
             val name = uri.lastPathSegment?.substringAfterLast('/') ?: "attachment"
             attachments.add(ChatAttachment(id = "${System.currentTimeMillis()}-${attachments.size}", name = name, sizeLabel = "file"))
         }
-        if (uris.isNotEmpty()) showMessageToast(phrase(en, "Attached ${uris.size} file(s)", "Прикреплено файлов: ${uris.size}"))
+        if (uris.isNotEmpty()) statusToast = phrase(en, "Attached ${uris.size} file(s)", "Прикреплено файлов: ${uris.size}")
     }
     var drawerExpanded by remember { mutableStateOf(true) }
     var currentId by remember { mutableStateOf<String?>(null) }
@@ -368,7 +368,7 @@ fun AgentHome() {
                                 activeProfileId = profile.id
                                 selectedModel = profile.model
                                 prefs.edit().putString("model_label", profile.model).apply()
-                                modelConfig = modelConfig.copy(baseUrl = profile.endpoint, model = profile.model)
+                                modelConfig = modelConfig.copy(endpoint = profile.endpoint, model = profile.model)
                                 showMessageToast(phrase(en, "Switched to ${profile.name}", "Профиль: ${profile.name}"))
                             },
                             skills = skills,
