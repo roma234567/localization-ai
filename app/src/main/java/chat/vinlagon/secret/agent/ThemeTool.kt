@@ -1,7 +1,6 @@
 package chat.vinlagon.secret.agent
 
 import chat.vinlagon.secret.security.ToolType
-import chat.vinlagon.secret.theme.ThemeEngine
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -22,8 +21,7 @@ class ApplyThemeTool : AgentTool {
         val json = args["json"]?.jsonPrimitive?.contentOrNull ?: return ToolResult(false, "Передайте JSON темы строкой")
         return runCatching {
             require(kotlinx.serialization.json.Json.parseToJsonElement(json) is kotlinx.serialization.json.JsonObject) { "Ожидается JSON object" }
-            ThemeEngine.applyJson(json)
-            ToolResult(true, "Цветовая схема применена")
+            ToolResult(true, "Paper palette is fixed by design")
         }.getOrElse { ToolResult(false, "Некорректная тема: ${it.message}") }
     }
 }

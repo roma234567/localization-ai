@@ -160,15 +160,15 @@ fun AgentHome() {
         val selectedFile = currentFile
         if (uri != null && selectedFile != null) runCatching {
             context.contentResolver.openOutputStream(uri)?.use { it.write(selectedFile.content.toByteArray()) }
-            showToast(phrase(en, "File exported", "Файл сохранён"), scope) { statusToast = null }
-        }.onFailure { showToast(it.message ?: "Export failed", scope) { statusToast = null } }
+            showMessageToast(phrase(en, "File exported", "Файл сохранён"))
+        }.onFailure { showMessageToast(it.message ?: "Export failed") }
     }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) runCatching {
             val json = messages.joinToString(prefix = "[\n", postfix = "\n]", separator = ",\n") { "  {\"role\":\"${it.role}\",\"text\":\"${it.text.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")}\"}" }
             context.contentResolver.openOutputStream(uri)?.use { it.write(json.toByteArray()) }
-            showToast(phrase(en, "Conversation exported", "Диалог экспортирован"), scope) { statusToast = null }
-        }.onFailure { showToast(it.message ?: "Export failed", scope) { statusToast = null } }
+            showMessageToast(phrase(en, "Conversation exported", "Диалог экспортирован"))
+        }.onFailure { showMessageToast(it.message ?: "Export failed") }
     }
     fun setLanguage(next: Boolean) { en = next; prefs.edit().putBoolean("english", next).apply() }
     fun saveChatToHistory() {
