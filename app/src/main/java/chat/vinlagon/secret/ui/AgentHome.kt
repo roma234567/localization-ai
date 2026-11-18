@@ -92,7 +92,7 @@ private val docsRoot = FolderNode(
         DemoFile("notes.txt", "Product notes\n\nKeep the interface calm, legible, and useful.\nAll important changes should remain reviewable.")
     ),
     folders = listOf(
-        FolderNode("docs", listOf(DemoFile("getting-started.md", "# Getting started\n\nConnect a model in **Settings → Model**. Your credentials stay encrypted on this device.\n\n`HTTPS only` endpoints are accepted.")), listOf(FolderNode("research", listOf(DemoFile("research.md", "# Research\n\nA compact summary of the current workspace and its open questions.\n\n## Next steps\n\nReview the draft, then edit it with the agent.")))),
+        FolderNode("docs", listOf(DemoFile("getting-started.md", "# Getting started\n\nConnect a model in **Settings → Model**. Your credentials stay encrypted on this device.\n\n`HTTPS only` endpoints are accepted.")), listOf(FolderNode("research", listOf(DemoFile("research.md", "# Research\n\nA compact summary of the current workspace and its open questions.\n\n## Next steps\n\nReview the draft, then edit it with the agent."))))),
         FolderNode("plans", listOf(DemoFile("launch-plan.md", "# Launch plan\n\n## 1. Prepare\nConfirm the scope and review the content.\n\n## 2. Build\nCreate a small, testable first release.\n\n## 3. Review\nCheck every generated file before sharing."))),
         FolderNode("output", listOf(DemoFile("welcome.html", "<!doctype html><html><head><meta charset='utf-8'><title>Welcome</title></head><body><main><h1>A quieter workspace</h1><p>Your agent's work, in one place.</p><a href='#details'>Read the notes</a></main></body></html>"), DemoFile("sample.py", "def greet(name: str) -> str:\n    return f\"Hello, {name}!\"\n\nprint(greet(\"there\"))"))),
         FolderNode("archive")
