@@ -86,19 +86,40 @@ private val UiMono = FontFamily.Monospace
 private val UiSerif = FontFamily.Serif
 private fun phrase(en: Boolean, english: String, russian: String) = if (en) english else russian
 
-private val docsRoot = FolderNode(
-    name = "Workspace",
-    files = listOf(
-        DemoFile("README.md", "# Vinlagon\n\nA quiet paper workspace for your AI agent.\n\n- Keep files close to the conversation\n- Review every change\n- Export what matters"),
-        DemoFile("notes.txt", "Product notes\n\nKeep the interface calm, legible, and useful.\nAll important changes should remain reviewable.")
-    ),
-    folders = listOf(
-        FolderNode("docs", listOf(DemoFile("getting-started.md", "# Getting started\n\nConnect a model in **Settings → Model**. Your credentials stay encrypted on this device.\n\n`HTTPS only` endpoints are accepted.")), listOf(FolderNode("research", listOf(DemoFile("research.md", "# Research\n\nA compact summary of the current workspace and its open questions.\n\n## Next steps\n\nReview the draft, then edit it with the agent."))))),
-        FolderNode("plans", listOf(DemoFile("launch-plan.md", "# Launch plan\n\n## 1. Prepare\nConfirm the scope and review the content.\n\n## 2. Build\nCreate a small, testable first release.\n\n## 3. Review\nCheck every generated file before sharing."))),
-        FolderNode("output", listOf(DemoFile("welcome.html", "<!doctype html><html><head><meta charset='utf-8'><title>Welcome</title></head><body><main><h1>A quieter workspace</h1><p>Your agent's work, in one place.</p><a href='#details'>Read the notes</a></main></body></html>"), DemoFile("sample.py", "def greet(name: str) -> str:\n    return f\"Hello, {name}!\"\n\nprint(greet(\"there\"))"))),
-        FolderNode("archive")
-    )
-)
+private val docsRoot = FolderNode(name = "Workspace")
+
+private fun loadRealWorkspaceNode(context: android.content.Context, subPath: List<String>, safUriString: String?): FolderNode {
+    if (!safUriString.isNullOrBlank()) {
+        val tree = runCatching { androidx.documentfile.provider.DocumentFile.fromTreeUri(context, android.net.Uri.parse(safUriString)) }.getOrNull()
+        if (tree != null && tree.exists()) {
+            var current = tree
+            for (segment in subPath) {
+                current = current.findFile(segment) ?: break
+            }
+            val children = current.listFiles()
+            val folders = children.filter { it.isDirectory }.map { FolderNode(it.name ?: "folder") }
+            val files = children.filter { it.isFile }.map { doc ->
+                val text = runCatching {
+                    context.contentResolver.openInputStream(doc.uri)?.bufferedReader()?.use { it.readText() } ?: ""
+                }.getOrDefault("")
+                DemoFile(doc.name ?: "file", text)
+            }
+            return FolderNode(current.name ?: "Workspace", files = files, folders = folders)
+        }
+    }
+    var dir = java.io.File(context.filesDir, "workspace").apply { mkdirs() }
+    for (segment in subPath) {
+        val next = java.io.File(dir, segment)
+        if (next.exists() && next.isDirectory) dir = next
+    }
+    val entries = dir.listFiles()?.sortedBy { it.name.lowercase() } ?: emptyList()
+    val folders = entries.filter { it.isDirectory }.map { FolderNode(it.name) }
+    val files = entries.filter { it.isFile }.map { file ->
+        val text = runCatching { if (file.length() <= 256_000) file.readText() else "(File too large to preview)" }.getOrDefault("")
+        DemoFile(file.name, text)
+    }
+    return FolderNode(if (subPath.isEmpty()) "Workspace" else dir.name, files = files, folders = folders)
+}
 
 @Composable
 fun AgentHome() {
@@ -230,14 +251,71 @@ fun AgentHome() {
             try {
                 if (modelConfig.apiKey.isNotBlank()) {
                     val api = ApiChatClient()
+                    val workspaceDir = java.io.File(context.filesDir, "workspace").apply { mkdirs() }
                     try {
-                        val replyHistory = listOf(
-                            chat.vinlagon.secret.agent.ChatMessage("system", "You are a concise, careful assistant. Give brief progress updates, not private reasoning. Use no unsupported tools; do not claim files were changed unless you changed them."),
-                            *messages.dropLast(1).map { chat.vinlagon.secret.agent.ChatMessage(it.role, it.text) }.toTypedArray()
+                        val systemPrompt = "You are a concise, careful assistant. When you need to use a tool, output a JSON object on its own line: {\"tool\":\"write|read|list|bash\", \"path\":\"...\", \"content\":\"...\", \"command\":\"...\"}. Available tools: write, read, list, bash. Give brief progress updates, not private reasoning."
+                        val conversation = mutableListOf(
+                            chat.vinlagon.secret.agent.ChatMessage("system", systemPrompt),
+                            *messages.dropLast(1).dropLast(1).map { chat.vinlagon.secret.agent.ChatMessage(it.role, it.text) }.toTypedArray(),
+                            chat.vinlagon.secret.agent.ChatMessage("user", effectiveText)
                         )
-                        api.stream(modelConfig, replyHistory) { chunk ->
+                        repeat(3) { step ->
+                            val rawBuffer = StringBuilder()
+                            api.stream(modelConfig, conversation) { chunk ->
+                                rawBuffer.append(chunk)
+                                val visible = rawBuffer.toString().replace(Regex("\\{\\s*\"tool\"\\s*:[^}]*\\}"), "").trim()
+                                val last = messages.lastIndex
+                                if (last >= 0 && messages[last].role == "assistant") {
+                                    messages = messages.toMutableList().also { it[last] = it[last].copy(text = visible.take(60_000)) }
+                                }
+                            }
+                            val fullText = rawBuffer.toString()
+                            val toolMatch = Regex("\\{\\s*\"tool\"\\s*:\\s*\"([^\"]+)\"[^}]*\\}").find(fullText) ?: return@repeat
+                            val toolJson = toolMatch.value
+                            val toolName = toolMatch.groupValues[1]
+                            val pathArg = Regex("\"path\"\\s*:\\s*\"([^\"]*)\"").find(toolJson)?.groupValues?.get(1) ?: ""
+                            val contentArg = Regex("\"content\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"").find(toolJson)?.groupValues?.get(1)?.replace("\\n", "\n")?.replace("\\\"", "\"") ?: ""
+                            val cmdArg = Regex("\"command\"\\s*:\\s*\"([^\"]*)\"").find(toolJson)?.groupValues?.get(1) ?: ""
+
+                            val (toolEvent, toolResult, writtenFile) = when (toolName) {
+                                "write" -> {
+                                    val target = java.io.File(workspaceDir, pathArg.ifBlank { "note.md" })
+                                    target.parentFile?.mkdirs()
+                                    target.writeText(contentArg)
+                                    val ev = ToolEvent("Write", target.name, listOf(ToolChild("↳", target.name, action = "Open")))
+                                    Triple(ev, "Written ${target.name} (${contentArg.length} chars)", DemoFile(target.name, contentArg))
+                                }
+                                "read" -> {
+                                    val target = java.io.File(workspaceDir, pathArg)
+                                    val body = if (target.exists() && target.isFile) target.readText().take(8000) else "File not found: $pathArg"
+                                    Triple(ToolEvent("Read", pathArg, listOf(ToolChild("↳", pathArg))), body, null)
+                                }
+                                "list" -> {
+                                    val list = workspaceDir.listFiles()?.joinToString("\n") { it.name } ?: "(empty)"
+                                    Triple(ToolEvent("List", "workspace", listOf(ToolChild("↳", list.lines().size.toString() + " items"))), list, null)
+                                }
+                                "bash" -> {
+                                    val out = runCatching {
+                                        val proc = ProcessBuilder("sh", "-c", cmdArg).directory(workspaceDir).redirectErrorStream(true).start()
+                                        proc.inputStream.bufferedReader().readText().take(4000)
+                                    }.getOrElse { it.message ?: "Command failed" }
+                                    Triple(ToolEvent("Bash", cmdArg, listOf(ToolChild("$", cmdArg))), out, null)
+                                }
+                                else -> Triple(ToolEvent(toolName, pathArg), "Unsupported tool: $toolName", null)
+                            }
                             val last = messages.lastIndex
-                            if (last >= 0 && messages[last].role == "assistant") messages = messages.toMutableList().also { it[last] = it[last].copy(text = (it[last].text + chunk).take(60_000)) }
+                            if (last >= 0 && messages[last].role == "assistant") {
+                                messages = messages.toMutableList().also {
+                                    it[last] = it[last].copy(
+                                        tools = it[last].tools + toolEvent,
+                                        fileName = writtenFile?.name ?: it[last].fileName,
+                                        fileBody = writtenFile?.content ?: it[last].fileBody
+                                    )
+                                }
+                            }
+                            if (writtenFile != null) generatedFiles.add(writtenFile)
+                            conversation.add(chat.vinlagon.secret.agent.ChatMessage("assistant", fullText))
+                            conversation.add(chat.vinlagon.secret.agent.ChatMessage("user", "Tool '$toolName' result:\n$toolResult\nContinue your answer concisely without raw JSON."))
                         }
                     } finally { api.close() }
                 } else {
@@ -448,6 +526,7 @@ fun AgentHome() {
                         onFile = { currentFile = it; sourceMode = false }, onSource = { sourceMode = it },
                         onDownload = { currentFile?.let { downloadLauncher.launch(it.name) } },
                         onCopy = { currentFile?.let { clipboard.setText(AnnotatedString(it.content)); showMessageToast(phrase(en, "Copied", "Скопировано")) } },
+                        onPickFolder = { treePicker.launch(null) },
                         modifier = Modifier.width(420.dp).fillMaxHeight()
                     )
                 }
@@ -484,6 +563,7 @@ fun AgentHome() {
                         onFile = { currentFile = it; sourceMode = false }, onSource = { sourceMode = it },
                         onDownload = { currentFile?.let { downloadLauncher.launch(it.name) } },
                         onCopy = { currentFile?.let { clipboard.setText(AnnotatedString(it.content)); showMessageToast(phrase(en, "Copied", "Скопировано")) } },
+                        onPickFolder = { treePicker.launch(null) },
                         modifier = Modifier.fillMaxWidth().height(sheetHeight)
                     )
                 }
@@ -574,7 +654,7 @@ private fun ChatTimeline(
                         Row(verticalAlignment = Alignment.CenterVertically) { PulseLabel("[agent] search → draft → check…", !reducedMotion) }
                         Spacer(Modifier.height(4.dp))
                     }
-                    if (message.text.isNotBlank()) Text(message.text + if (busy && index == messages.lastIndex) " ▍" else "", color = Paper.ink0, fontSize = (16 * textScale).sp, lineHeight = (26 * textScale).sp)
+                    if (message.text.isNotBlank()) MarkdownText(message.text + if (busy && index == messages.lastIndex) " ▍" else "", textScale = textScale)
                     if (message.stopped) Text("■ ${phrase(en, "stopped", "остановлено")}", Modifier.padding(top = 6.dp), color = Paper.ink2, fontSize = 12.sp)
                     if (message.fileName != null) {
                         Spacer(Modifier.height(12.dp))
@@ -656,9 +736,13 @@ private fun PanelScrim(modifier: Modifier, animations: Boolean, onDismiss: () ->
 private fun WorkspacePanel(
     height: androidx.compose.ui.unit.Dp, en: Boolean, currentFolder: List<String>, currentFile: DemoFile?, sourceMode: Boolean, extraFiles: List<DemoFile>, animations: Boolean,
     onClose: () -> Unit, onBack: () -> Unit, onFolder: (List<String>) -> Unit, onFile: (DemoFile) -> Unit, onSource: (Boolean) -> Unit,
-    onDownload: () -> Unit, onCopy: () -> Unit, modifier: Modifier = Modifier
+    onDownload: () -> Unit, onCopy: () -> Unit, onPickFolder: () -> Unit = {}, modifier: Modifier = Modifier
 ) {
-    val folder = docsRoot.folderAt(currentFolder)
+    val context = LocalContext.current
+    val safUri = context.getSharedPreferences("vinlagon-ui-v2", 0).getString("workspace_uri", null)
+    val folder = remember(currentFolder, extraFiles, safUri) {
+        loadRealWorkspaceNode(context, currentFolder, safUri)
+    }
     var dragTotal by remember { mutableFloatStateOf(0f) }
     Column(
         modifier.height(height).fillMaxWidth().navigationBarsPadding()
@@ -687,6 +771,8 @@ private fun WorkspacePanel(
             }
             if (currentFile != null) {
                 IconButton(onClick = onDownload, modifier = Modifier.size(40.dp)) { Icon(Icons.Outlined.Download, phrase(en, "Download", "Скачать"), tint = Paper.ink1) }
+            } else {
+                Text(phrase(en, "Folder", "Папка"), Modifier.clickable(onClick = onPickFolder).padding(horizontal = 8.dp, vertical = 6.dp), color = Paper.ink2, fontSize = 12.sp, fontFamily = UiMono)
             }
             CloseButton(phrase(en, "Close workspace", "Закрыть рабочую папку"), onClose)
         }

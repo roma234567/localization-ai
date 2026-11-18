@@ -192,8 +192,8 @@ fun Composer(
                 )
                 Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("+", Modifier.clickable(onClick = onAttach).padding(horizontal = 10.dp, vertical = 8.dp), color = Paper.ink1, fontSize = 18.sp, fontWeight = FontWeight.Medium)
-                    Text("$model ⌄", Modifier.clickable(onClick = onModel).padding(horizontal = 4.dp, vertical = 10.dp), color = Paper.ink2, fontSize = 12.5.sp, fontFamily = Mono, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Spacer(Modifier.weight(1f))
+                    Text("$model ⌄", Modifier.weight(1f).clickable(onClick = onModel).padding(horizontal = 4.dp, vertical = 10.dp), color = Paper.ink2, fontSize = 12.5.sp, fontFamily = Mono, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.width(8.dp))
                     if (busy) {
                         OutlinedButton(onClick = onStop, modifier = Modifier.size(40.dp), contentPadding = PaddingValues(0.dp), shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, Paper.line1), colors = ButtonDefaults.outlinedButtonColors(containerColor = Paper.paper1, contentColor = Paper.ink0)) { Text("■", fontSize = 14.sp) }
                     } else {
